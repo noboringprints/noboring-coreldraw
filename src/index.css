@@ -1,0 +1,91 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* one accent colour (violet-indigo) */
+  --color-brand-50: #f3f1ff;
+  --color-brand-100: #e9e5ff;
+  --color-brand-200: #d4ccff;
+  --color-brand-300: #b4a6ff;
+  --color-brand-400: #8f78ff;
+  --color-brand-500: #6d4aff;
+  --color-brand-600: #5b2ff5;
+  --color-brand-700: #4c22d6;
+  --color-brand-800: #3e1dac;
+  --color-brand-900: #321b86;
+
+  /* the dark canvas behind sheets in the preview */
+  --color-canvas: #16151d;
+  --color-canvas-2: #1f1e29;
+
+  --shadow-soft: 0 1px 2px rgb(16 12 40 / 0.04), 0 4px 16px rgb(16 12 40 / 0.06);
+  --shadow-lift: 0 2px 4px rgb(16 12 40 / 0.06), 0 12px 32px rgb(16 12 40 / 0.12);
+
+  --animate-fade-up: fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-slide-in: slide-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  background: #f6f5fa;
+  color: var(--color-slate-900);
+  -webkit-font-smoothing: antialiased;
+}
+::selection {
+  background: var(--color-brand-200);
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition-all duration-150 select-none focus-visible:ring-4 focus-visible:ring-brand-200 focus-visible:outline-none active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40;
+}
+@utility btn-primary {
+  @apply btn bg-brand-600 text-white shadow-[0_1px_2px_rgb(76_34_214/0.3),0_6px_16px_rgb(91_47_245/0.25)] hover:bg-brand-700;
+}
+@utility btn-secondary {
+  @apply btn bg-white text-slate-800 ring-1 ring-slate-200 hover:bg-slate-50 hover:ring-slate-300;
+}
+@utility btn-ghost {
+  @apply btn text-slate-600 hover:bg-slate-100 hover:text-slate-900;
+}
+@utility btn-lg {
+  @apply rounded-2xl px-6 py-3.5 text-base;
+}
+@utility btn-icon {
+  @apply btn h-9 w-9 shrink-0 p-0!;
+}
+@utility field {
+  @apply rounded-xl border-0 bg-white px-3 py-2 text-sm ring-1 ring-slate-200 transition-shadow placeholder:text-slate-400 hover:ring-slate-300 focus:ring-2 focus:ring-brand-500 focus:outline-none;
+}
+@utility card {
+  @apply rounded-3xl bg-white shadow-soft ring-1 ring-slate-900/[0.04];
+}
+@utility label-xs {
+  @apply text-[11px] font-semibold tracking-wider text-slate-400 uppercase;
+}
