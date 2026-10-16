@@ -191,6 +191,18 @@ export function pdfPageToDisplayedMm(info: SourcePageInfo): Matrix {
   return multiply(scale(1 / PT_PER_MM), rot)
 }
 
+/** Parsed source PDFs, so a file is read by pdf-lib once (at upload) and reused by every export. */
+const parsedPdfs = new WeakMap<Uint8Array, Promise<PDFDocument>>()
+export function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
+  let p = parsedPdfs.get(bytes)
+  if (!p) {
+    p = PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false })
+    p.catch(() => parsedPdfs.delete(bytes))
+    parsedPdfs.set(bytes, p)
+  }
+  return p
+}
+
 let idCounter = 0
 export const newId = (prefix = 'id') => `${prefix}${Date.now().toString(36)}${(idCounter++).toString(36)}`
 
@@ -201,7 +213,7 @@ export async function readSource(name: string, bytes: Uint8Array, id = newId('sr
   if (kind === 'pdf') {
     let doc: PDFDocument
     try {
-      doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false })
+      doc = await loadPdf(bytes)
     } catch (e) {
       throw new Error(`"${name}" could not be opened as a PDF (${(e as Error).message}).`)
     }

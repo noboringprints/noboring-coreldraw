@@ -83,26 +83,25 @@ export const TRIM_SIZES: TrimSize[] = [
 ]
 
 /**
- * Defaults: NO bleed. The design is printed exactly as it is in the file (never scaled,
- * mirrored or extended), with an 8 mm white gap between copies/panels and short crop marks
- * that line up with the design's edges: 4 mm long, 1 mm away from the corner (measured from the
- * printer's CorelDRAW X8 file "Krish 1.pdf", 13 × 19 in, 2 × A4 split panels). This is what split
- * posters need: cut on the marks and the panels butt together exactly.
- * Set a bleed (e.g. 3 mm) in Settings when a printer asks for it.
+ * Defaults: the classic 3 mm bleed setup. Every design gets 3 mm of bleed on ALL four sides
+ * (and the corners): the file's own bleed when it has it, otherwise mirrored from its edges.
+ * The design itself is never scaled. Crop marks start 3 mm from the trim corner – just outside
+ * the bleed, so they never touch the artwork – and are 5 mm long. Copies sit bleed to bleed.
+ * Set the bleed to 0 in Settings to print a design exactly as it is (e.g. split posters).
  */
 export const DEFAULT_SETTINGS: PrintSettings = {
   sheet: SHEETS[0],
-  bleedMm: 0,
+  bleedMm: 3,
   marks: {
-    lengthMm: 4,
-    offsetMm: 1,
+    lengthMm: 5,
+    offsetMm: 3,
     lineWidthPt: 0.25,
     color: 'registration',
     minLengthMm: 2,
   },
   marginMm: 10,
   minEdgeMm: 3,
-  gutterMm: 8,
+  gutterMm: 0,
   label: { enabled: true, fontSizePt: 6 },
   minDpi: 200,
   safeZoneMm: 5,

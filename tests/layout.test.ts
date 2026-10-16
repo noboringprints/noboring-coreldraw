@@ -254,15 +254,29 @@ describe('on an A3 sheet (297 × 420)', () => {
   })
 })
 
-describe('DEFAULTS: no bleed, 8 mm gap (split posters)', () => {
+describe('DEFAULTS: classic 3 mm bleed', () => {
   const s = cloneSettings(DEFAULT_SETTINGS)
+  it('defaults are 3 mm bleed, bleeds touching, 5 mm marks starting 3 mm from the corner (outside the bleed)', () => {
+    expect(s.bleedMm).toBe(3)
+    expect(s.gutterMm).toBe(0)
+    expect(s.marks).toMatchObject({ lengthMm: 5, offsetMm: 3 })
+    expect(s.marks.offsetMm).toBeGreaterThanOrEqual(s.bleedMm)
+  })
+  it('every corner of every copy gets its marks, clear of all artwork and bleed', () => {
+    for (const [w, h, n] of [[297, 420, 1], [210, 297, 2], [148, 210, 4]]) {
+      const [sheet] = layoutJob(items(n, w, h), s)
+      expect(sheet.placements).toHaveLength(n)
+      expect(sheet.marks.length).toBeGreaterThan(0)
+      checkInvariants(s, sheet)
+    }
+  })
+})
+
+describe('no-bleed setup: 8 mm gap (split posters, as the CorelDRAW reference)', () => {
+  const s = cloneSettings(DEFAULT_SETTINGS)
+  Object.assign(s, { bleedMm: 0, gutterMm: 8, marks: { ...s.marks, lengthMm: 4, offsetMm: 1 } })
   const sheets = layoutJob(items(2, 210, 297), s)
   const [a, b] = sheets[0].placements
-  it('defaults are no bleed, 8 mm gap, 4 mm marks 1 mm from the corner (as the CorelDRAW reference)', () => {
-    expect(s.bleedMm).toBe(0)
-    expect(s.gutterMm).toBe(8)
-    expect(s.marks).toMatchObject({ lengthMm: 4, offsetMm: 1 })
-  })
   it('A4 panels: 2 per sheet, landscape, stacked with an 8 mm white gap', () => {
     expect(sheets).toHaveLength(1)
     expect(sheets[0].placements).toHaveLength(2)

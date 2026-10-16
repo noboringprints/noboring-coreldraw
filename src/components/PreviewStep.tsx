@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PrintSettings } from '../config/defaults'
 import { buildPrintPdf } from '../lib/exportPdf'
 import { expand } from '../lib/geometry'
 import type { ArtRef, Design, DesignCheck } from '../lib/job'
 import type { PlacementOverride, Sheet } from '../lib/layout'
-import { browserRasterizer, renderPdfPage } from '../lib/pdfRender'
+import { type PxRect, browserRasterizer, renderPage } from '../lib/pdfRender'
+import { isSheetReady, sheetBase, sheetPage } from '../lib/sheetPreview'
 import type { SourceFile } from '../lib/sources'
+import type { PDFPageProxy } from 'pdfjs-dist'
 import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Eye, Maximize, MousePointerClick, Plus, Ruler, RotateCw, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { DESIGN_COLORS, SheetDiagram, Stepper, fmtMm } from './ui'
 import FillSpace from './FillSpace'
@@ -13,6 +15,23 @@ import FillSpace from './FillSpace'
 /** CSS pixels per mm at 100 % zoom (96 px per inch). */
 const PX_PER_MM_100 = 96 / 25.4
 const RULER = 26
+/** Most pixels rendered for a whole sheet; beyond this only the visible part is rendered. */
+const BASE_BUDGET_PX = 4_000_000
+
+/** Shows a canvas rendered elsewhere (no PNG encode/decode round trip). */
+function CanvasView({ canvas, className, style, label }: { canvas: HTMLCanvasElement; className?: string; style?: React.CSSProperties; label?: string }) {
+  const host = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = host.current
+    if (!el) return
+    canvas.style.cssText = 'display:block;width:100%;height:100%'
+    el.replaceChildren(canvas)
+    return () => {
+      if (canvas.parentNode === el) el.removeChild(canvas)
+    }
+  }, [canvas])
+  return <div ref={host} role="img" aria-label={label} className={className} style={style} />
+}
 
 type Overlays = { trim: boolean; bleed: boolean; safe: boolean; marks: boolean; margin: boolean }
 
@@ -43,7 +62,6 @@ export default function PreviewStep(props: {
   const [fillOpen, setFillOpen] = useState(false)
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
-  const [img, setImg] = useState<{ url: string; key: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [renderError, setRenderError] = useState<string | null>(null)
   const viewport = useRef<HTMLDivElement>(null)
@@ -105,41 +123,113 @@ export default function PreviewStep(props: {
   // ---- render the real output PDF for this sheet with pdf.js ----
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
   const res = Math.min(14, Math.max(2, 2 ** Math.ceil(Math.log2(zoom * dpr)))) // px/mm, in steps so we don't re-render on every wheel tick
-  const sheetKey = useMemo(
-    () => (sheet ? JSON.stringify([sheet.placements.map((p) => [p.item.id, p.trim, p.rotation, p.item.art]), sheet.index, sheets.length, settings, props.trimNames]) : ''),
-    [sheet, sheets.length, settings, props.trimNames],
+  // The whole sheet is rendered at most at `baseRes` (a few megapixels); when zoomed in further,
+  // only the visible part is rendered at `res` on top – same pixels, a fraction of the work.
+  const baseRes = Math.min(res, Math.max(2, 2 ** Math.floor(Math.log2(Math.sqrt(BASE_BUDGET_PX / (W * H))))))
+  const keyOf = useCallback(
+    (s: Sheet<ArtRef>) => JSON.stringify([s.placements.map((p) => [p.item.id, p.trim, p.rotation, p.item.art]), s.index, sheets.length, settings, props.trimNames]),
+    [sheets.length, settings, props.trimNames],
   )
+  const sheetKey = useMemo(() => (sheet ? keyOf(sheet) : ''), [sheet, keyOf])
+  const loadPage = useCallback(
+    (s: Sheet<ArtRef>) =>
+      sheetPage(keyOf(s), () => buildPrintPdf([s], props.sources, settings, { totalSheets: sheets.length, trimNames: props.trimNames, rasterizer: browserRasterizer })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [keyOf],
+  )
+  const [page, setPage] = useState<{ key: string; page: PDFPageProxy } | null>(null)
+  const [base, setBase] = useState<{ key: string; res: number; canvas: HTMLCanvasElement } | null>(null)
+  const [detail, setDetail] = useState<{ key: string; res: number; region: PxRect; fullW: number; fullH: number; canvas: HTMLCanvasElement } | null>(null)
+  const [detailBusy, setDetailBusy] = useState(false)
+  const shownIdx = Math.min(sheetIdx, sheets.length - 1)
+
   useEffect(() => {
     if (!sheet) return
-    const signal = { cancelled: false }
+    let cancelled = false
+    let prefetch: ReturnType<typeof setTimeout> | undefined
     setBusy(true)
-    const t = setTimeout(async () => {
-      try {
-        const bytes = await buildPrintPdf([sheet], props.sources, settings, { totalSheets: sheets.length, trimNames: props.trimNames, rasterizer: browserRasterizer })
-        const canvas = await renderPdfPage(bytes, 0, res, signal)
-        if (!canvas || signal.cancelled) return
-        canvas.toBlob((b) => {
-          if (!b || signal.cancelled) return
-          setImg((old) => {
-            if (old) URL.revokeObjectURL(old.url)
-            return { url: URL.createObjectURL(b), key: sheetKey }
-          })
+    // a sheet seen before shows at once; otherwise wait a moment so quick edits don't each rebuild the PDF
+    const t = setTimeout(
+      async () => {
+        try {
+          const pg = await loadPage(sheet)
+          if (cancelled) return
+          setPage({ key: sheetKey, page: pg })
+          const canvas = await sheetBase(sheetKey, baseRes, pg)
+          if (cancelled) return
+          setBase({ key: sheetKey, res: baseRes, canvas })
           setRenderError(null)
           setBusy(false)
-        })
-      } catch (e) {
-        if (!signal.cancelled) {
-          setRenderError((e as Error).message)
-          setBusy(false)
+          // get the next sheet ready so flipping through is instant
+          const next = sheets[shownIdx + 1]
+          if (next)
+            prefetch = setTimeout(() => {
+              loadPage(next)
+                .then((p) => sheetBase(keyOf(next), baseRes, p))
+                .catch(() => {})
+            }, 300)
+        } catch (e) {
+          if (!cancelled) {
+            setRenderError((e as Error).message)
+            setBusy(false)
+          }
         }
-      }
-    }, 120)
+      },
+      isSheetReady(sheetKey) ? 0 : 120,
+    )
     return () => {
-      signal.cancelled = true
+      cancelled = true
       clearTimeout(t)
+      clearTimeout(prefetch)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheetKey, res])
+  }, [sheetKey, baseRes])
+
+  // zoomed-in detail: render just the visible part of the sheet (plus a margin for panning) at full resolution
+  const inflight = useRef<{ key: string; res: number; region: PxRect; cancel: () => void } | null>(null)
+  const detailRef = useRef(detail)
+  detailRef.current = detail
+  useEffect(() => () => inflight.current?.cancel(), [])
+  useEffect(() => {
+    if (!page || page.key !== sheetKey || res <= baseRes) return
+    const scale = (res * 25.4) / 72
+    const full = page.page.getViewport({ scale })
+    const k = res / zoom // detail pixels per screen pixel
+    const vis = {
+      x0: Math.max(0, -pan.x) * k,
+      y0: Math.max(0, -pan.y) * k,
+      x1: Math.min(W * zoom, vp.w - pan.x) * k,
+      y1: Math.min(H * zoom, vp.h - pan.y) * k,
+    }
+    if (vis.x1 <= vis.x0 || vis.y1 <= vis.y0) return
+    const covers = (r: PxRect) => r.x <= vis.x0 && r.y <= vis.y0 && r.x + r.w >= vis.x1 && r.y + r.h >= vis.y1
+    const d = detailRef.current
+    if (d && d.key === sheetKey && d.res === res && covers(d.region)) return
+    const f = inflight.current
+    if (f && f.key === sheetKey && f.res === res && covers(f.region)) return
+    const mx = (vis.x1 - vis.x0) * 0.25
+    const my = (vis.y1 - vis.y0) * 0.25
+    const x = Math.max(0, Math.floor(vis.x0 - mx))
+    const y = Math.max(0, Math.floor(vis.y0 - my))
+    const region = { x, y, w: Math.min(Math.round(full.width), Math.ceil(vis.x1 + mx)) - x, h: Math.min(Math.round(full.height), Math.ceil(vis.y1 + my)) - y }
+    const t = setTimeout(() => {
+      inflight.current?.cancel()
+      const job = renderPage(page.page, res, region)
+      const me = { key: sheetKey, res, region, cancel: job.cancel }
+      inflight.current = me
+      setDetailBusy(true)
+      job.promise
+        .then((canvas) => setDetail({ key: me.key, res, region, fullW: full.width, fullH: full.height, canvas }))
+        .catch(() => {})
+        .finally(() => {
+          if (inflight.current === me) {
+            inflight.current = null
+            setDetailBusy(false)
+          }
+        })
+    }, 150)
+    return () => clearTimeout(t)
+  }, [page, sheetKey, res, baseRes, zoom, pan, vp, W, H])
 
   // ---- rulers ----
   useEffect(() => {
@@ -246,11 +336,17 @@ export default function PreviewStep(props: {
 
   const colorOf = (designId: string) => DESIGN_COLORS[Math.max(0, props.designs.findIndex((d) => d.id === designId)) % DESIGN_COLORS.length]
 
+  const pickSheet = useCallback((i: number) => {
+    setSheetIdx(i)
+    setSelected(null)
+    setFillOpen(false)
+  }, [])
+
   if (!sheet) return <div className="grid h-full place-items-center bg-canvas text-slate-400">Nothing to preview yet – add designs first.</div>
 
   const b = settings.bleedMm
   const sizeName = props.trimNames[sheet.groupKey] ?? 'Custom'
-  const imgFresh = img?.key === sheetKey
+  const baseFresh = base?.key === sheetKey
   const zoomPct = Math.round((zoom / PX_PER_MM_100) * 100)
   const problems = [
     ...(renderError ? [`Preview failed: ${renderError}`] : []),
@@ -269,40 +365,7 @@ export default function PreviewStep(props: {
   return (
     <div className="flex h-full min-h-0 bg-canvas text-slate-200">
       {/* ---------- sheet strip ---------- */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-white/5 bg-canvas-2/50 md:flex">
-        <div className="flex items-center justify-between px-4 pt-4 pb-3">
-          <span className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase">Sheets</span>
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-200">{sheets.length}</span>
-        </div>
-        <div className="flex-1 space-y-1.5 overflow-y-auto px-3 pb-4">
-          {sheets.map((s, i) => (
-            <button
-              key={s.id}
-              onClick={() => {
-                setSheetIdx(i)
-                setSelected(null)
-                setFillOpen(false)
-              }}
-              className={`flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition ${i === sheetIdx ? 'bg-brand-500/20 ring-1 ring-brand-400/50' : 'hover:bg-white/5'}`}
-            >
-              <SheetDiagram dark sheetW={W} sheetH={H} bleed={b} height={60} trims={s.placements.map((p) => ({ rect: p.trim, color: colorOf(p.item.designId) }))} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                  Sheet {i + 1}
-                  {s.warnings.length > 0 && <AlertTriangle size={13} className="text-amber-400" />}
-                </div>
-                <div className="text-xs text-slate-400">
-                  {props.trimNames[s.groupKey] ?? `${fmtMm(s.trimW)}×${fmtMm(s.trimH)}`} · {s.placements.length} up
-                  {s.freeSlots.length > 0 && <span className="text-amber-300"> · {s.freeSlots.length} empty</span>}
-                </div>
-                <div className="mt-0.5 truncate text-[11px] text-slate-500">
-                  {[...new Set(s.placements.map((p) => p.item.name + (p.item.panel ? ` ${p.item.panel.index}/${p.item.panel.total}` : '')))].join(', ')}
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </aside>
+      <SheetStrip sheets={sheets} sheetIdx={sheetIdx} W={W} H={H} bleed={b} trimNames={props.trimNames} designs={props.designs} onPick={pickSheet} />
 
       {/* ---------- canvas ---------- */}
       <section className="relative min-w-0 flex-1" style={{ display: 'grid', gridTemplateColumns: `${RULER}px 1fr`, gridTemplateRows: `${RULER}px 1fr` }}>
@@ -323,8 +386,20 @@ export default function PreviewStep(props: {
           onPointerUp={onPointerUp}
           onPointerLeave={() => setCursor(null)}
         >
-          <div className="absolute rounded-[2px] bg-white shadow-[0_20px_60px_rgb(0_0_0/0.55)]" style={{ left: pan.x, top: pan.y, width: W * zoom, height: H * zoom }}>
-            {img && <img src={img.url} alt={`Sheet ${sheetIdx + 1}`} draggable={false} className="h-full w-full transition-opacity select-none" style={{ opacity: imgFresh ? 1 : 0.55 }} />}
+          <div className="absolute overflow-hidden rounded-[2px] bg-white shadow-[0_20px_60px_rgb(0_0_0/0.55)] select-none" style={{ left: pan.x, top: pan.y, width: W * zoom, height: H * zoom }}>
+            {base && <CanvasView canvas={base.canvas} label={`Sheet ${sheetIdx + 1}`} className="absolute inset-0 transition-opacity" style={{ opacity: baseFresh ? 1 : 0.55 }} />}
+            {detail && base && baseFresh && detail.key === sheetKey && detail.res > base.res && (
+              <CanvasView
+                canvas={detail.canvas}
+                className="absolute"
+                style={{
+                  left: `${(detail.region.x / detail.fullW) * 100}%`,
+                  top: `${(detail.region.y / detail.fullH) * 100}%`,
+                  width: `${(detail.region.w / detail.fullW) * 100}%`,
+                  height: `${(detail.region.h / detail.fullH) * 100}%`,
+                }}
+              />
+            )}
           </div>
           <svg className="absolute overflow-visible" style={{ left: pan.x, top: pan.y }} width={W * zoom} height={H * zoom} viewBox={`0 0 ${W} ${H}`}>
             <g transform={`translate(0 ${H}) scale(1 -1)`}>
@@ -606,7 +681,7 @@ export default function PreviewStep(props: {
 
             {/* cursor position */}
             <div className="absolute right-4 bottom-4 flex items-center gap-2 rounded-full bg-black/40 px-3.5 py-1.5 text-[11px] font-medium text-slate-300 tabular-nums backdrop-blur">
-              {busy && <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-500 border-t-white" />}
+              {(busy || detailBusy) && <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-500 border-t-white" />}
               {cursor ? `x ${cursor.x.toFixed(1)} · y ${cursor.y.toFixed(1)} mm` : `${fmtMm(W)} × ${fmtMm(H)} mm`}
             </div>
 
@@ -629,6 +704,53 @@ export default function PreviewStep(props: {
     </div>
   )
 }
+
+/** The list of sheets on the left. Memoised: it doesn't change while panning, zooming or moving the mouse. */
+const SheetStrip = memo(function SheetStrip(props: {
+  sheets: Sheet<ArtRef>[]
+  sheetIdx: number
+  W: number
+  H: number
+  bleed: number
+  trimNames: Record<string, string>
+  designs: Design[]
+  onPick: (i: number) => void
+}) {
+  const { sheets, sheetIdx, W, H, bleed, trimNames, onPick } = props
+  const colorOf = (designId: string) => DESIGN_COLORS[Math.max(0, props.designs.findIndex((d) => d.id === designId)) % DESIGN_COLORS.length]
+  return (
+    <aside className="hidden w-64 shrink-0 flex-col border-r border-white/5 bg-canvas-2/50 md:flex">
+      <div className="flex items-center justify-between px-4 pt-4 pb-3">
+        <span className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase">Sheets</span>
+        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-slate-200">{sheets.length}</span>
+      </div>
+      <div className="flex-1 space-y-1.5 overflow-y-auto px-3 pb-4">
+        {sheets.map((s, i) => (
+          <button
+            key={s.id}
+            onClick={() => onPick(i)}
+            className={`flex w-full items-center gap-3 rounded-2xl p-2.5 text-left transition ${i === sheetIdx ? 'bg-brand-500/20 ring-1 ring-brand-400/50' : 'hover:bg-white/5'}`}
+          >
+            <SheetDiagram dark sheetW={W} sheetH={H} bleed={bleed} height={60} trims={s.placements.map((p) => ({ rect: p.trim, color: colorOf(p.item.designId) }))} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                Sheet {i + 1}
+                {s.warnings.length > 0 && <AlertTriangle size={13} className="text-amber-400" />}
+              </div>
+              <div className="text-xs text-slate-400">
+                {trimNames[s.groupKey] ?? `${fmtMm(s.trimW)}×${fmtMm(s.trimH)}`} · {s.placements.length} up
+                {s.freeSlots.length > 0 && <span className="text-amber-300"> · {s.freeSlots.length} empty</span>}
+              </div>
+              <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                {[...new Set(s.placements.map((p) => p.item.name + (p.item.panel ? ` ${p.item.panel.index}/${p.item.panel.total}` : '')))].join(', ')}
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </aside>
+  )
+})
 
 const snap = (mm: number) => Math.round(mm * 2) / 2 // 0.5 mm steps
 const round = (mm: number) => Math.round(mm * 1000) / 1000

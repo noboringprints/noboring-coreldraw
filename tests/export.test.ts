@@ -239,17 +239,18 @@ describe('exported PDF', () => {
   })
 })
 
-describe('REGRESSION: design without bleed – nothing inside the cut line is lost', () => {
-  const PPM = 12 // render the finished sheet at ~305 DPI
-  /** colour of the finished sheet at a point given in the design's own trim space (mm) */
-  async function sampler(out: Uint8Array, H: number) {
-    const [page] = await nodeRasterizer.render(out, PPM)
-    return (p: Placement, lx: number, ly: number) => {
-      const [x, y] = apply(placementMatrix(p), lx, ly)
-      const i = (Math.floor((H - y) * PPM) * page.width + Math.floor(x * PPM)) * 4
-      return [page.data[i], page.data[i + 1], page.data[i + 2]]
-    }
+const PPM = 12 // render the finished sheet at ~305 DPI
+/** colour of the finished sheet at a point given in the design's own trim space (mm) */
+async function sampler(out: Uint8Array, H: number) {
+  const [page] = await nodeRasterizer.render(out, PPM)
+  return (p: Placement, lx: number, ly: number) => {
+    const [x, y] = apply(placementMatrix(p), lx, ly)
+    const i = (Math.floor((H - y) * PPM) * page.width + Math.floor(x * PPM)) * 4
+    return [page.data[i], page.data[i + 1], page.data[i + 2]]
   }
+}
+
+describe('REGRESSION: design without bleed – nothing inside the cut line is lost', () => {
   const is = (c: number[], rgb: [number, number, number]) => c.every((v, i) => Math.abs(v - rgb[i] * 255) < 45)
 
   for (const mode of ['mirror', 'stretch'] as const)
@@ -306,10 +307,31 @@ describe('REGRESSION: design without bleed – nothing inside the cut line is lo
   }, 30_000)
 })
 
-describe('DEFAULTS: the design is printed exactly as it is', () => {
+describe('DEFAULTS: 3 mm bleed on every side', () => {
+  it('a file without bleed gets mirrored bleed; a file with 3 mm bleed uses its own', () => {
+    expect(DEFAULT_SETTINGS.bleedMm).toBe(3)
+    expect(detectBleed(pdf(210, 297), 210, 297, DEFAULT_SETTINGS.bleedMm).mode).toBe('mirror')
+    expect(detectBleed(pdf(216, 303), 210, 297, DEFAULT_SETTINGS.bleedMm).mode).toBe('included')
+  })
+  it('mirrored bleed fills all four sides and all four corners', async () => {
+    const { out, sheets } = await buildFor(148, 210, 1, { bleedInFile: 0, mode: 'mirror', settings: cloneSettings(DEFAULT_SETTINGS) })
+    const at = await sampler(out, SHEETS[0].heightMm)
+    const p = sheets[0].placements[0]
+    const white = [255, 255, 255]
+    for (const [x, y] of [[-1.5, 100], [149.5, 100], [70, -1.5], [70, 211.5], [-1.5, -1.5], [149.5, -1.5], [-1.5, 211.5], [149.5, 211.5]])
+      expect(at(p, x, y)).not.toEqual(white)
+  }, 30_000)
+})
+
+describe('no-bleed setup: the design is printed exactly as it is', () => {
+  const noBleed = () => {
+    const st = cloneSettings(DEFAULT_SETTINGS)
+    Object.assign(st, { bleedMm: 0, gutterMm: 8, marks: { ...st.marks, lengthMm: 4, offsetMm: 1 } })
+    return st
+  }
   it('no bleed is detected/added, the file keeps its exact size', () => {
-    expect(detectBleed(pdf(210, 297), 210, 297, DEFAULT_SETTINGS.bleedMm).mode).toBe('none')
-    expect(detectBleed(pdf(216, 303), 216, 303, DEFAULT_SETTINGS.bleedMm).mode).toBe('none')
+    expect(detectBleed(pdf(210, 297), 210, 297, 0).mode).toBe('none')
+    expect(detectBleed(pdf(216, 303), 216, 303, 0).mode).toBe('none')
     expect(suggestTrim(pdf(210.4, 297.3), 0)).toEqual({ name: 'A4', w: 210.4, h: 297.3 })
     expect(suggestTrim(pdf(216, 303), 0)).toEqual({ name: 'Custom', w: 216, h: 303 })
     expect(suggestTrim(pdf(300, 100), 0, 'x A4.pdf')).toEqual({ name: 'Custom', w: 300, h: 100 }) // not A-shaped: exact size
@@ -329,7 +351,7 @@ describe('DEFAULTS: the design is printed exactly as it is', () => {
     expect(plan.main.clip).toEqual({ x: 0, y: 0, w: 210, h: 297 })
   })
   it('split panels: drawn 1:1, nothing outside the design edge, no images', async () => {
-    const { out, sheets, doc } = await buildFor(210, 297, 2, { bleedInFile: 0, mode: 'none', settings: cloneSettings(DEFAULT_SETTINGS) })
+    const { out, sheets, doc } = await buildFor(210, 297, 2, { bleedInFile: 0, mode: 'none', settings: noBleed() })
     const xobjs = doc.getPage(0).node.Resources()!.lookup(PDFName.of('XObject'), PDFDict)
     const subtypes = xobjs.keys().map((k) => (doc.context.lookup(xobjs.get(k)) as PDFRawStream).dict.get(PDFName.of('Subtype'))?.toString())
     expect(subtypes).not.toContain('/Image')

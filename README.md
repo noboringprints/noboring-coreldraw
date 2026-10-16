@@ -3,7 +3,7 @@
 Prepares finished poster designs for printing, automatically:
 
 1. adds **crop marks** that line up with the design edges (the design itself is printed exactly as it is – not scaled, not extended),
-2. optionally adds **bleed** (off by default),
+2. adds **3 mm bleed** on every side (the file's own bleed, or mirrored from its edges),
 3. puts as many copies as fit on the **print sheet** (13 × 19 inch or A3),
 
 and exports **one print-ready PDF**. No CorelDRAW needed.
@@ -40,7 +40,7 @@ Other commands:
 **2 · Size & copies** – For each design choose:
 - the **final size** (A3, A4, A5 or Custom in mm) and Portrait / Landscape,
 - the number of **copies**,
-- **bleed** – one setting per design. By default the bleed is **0 mm**, so this is **None** and the design is printed exactly as it is in the file, at its own exact size. The other options only do something after you set a bleed in ⚙ Settings:
+- **bleed** – one setting per design. By default the bleed is **3 mm on all four sides and corners**: a file that already has it uses its own, otherwise it is **Mirror edges**. Set the bleed to 0 in ⚙ Settings to print a design exactly as it is.
   - **Mirror edges** – the outer 3 mm of the design is mirrored *outside* the cut line.
   - **Stretch edge pixels** – the outermost row of pixels is stretched across the 3 mm.
   - **None** – no bleed; the sheet is cut exactly at the design edge.
@@ -51,7 +51,7 @@ Other commands:
   Images (PNG/JPG) only count as “has bleed” when they store a DPI value, because otherwise their real size is unknown.
 - If a design's **proportions don't match** the final size, choose **Keep whole design** (white bands, nothing lost – the default) or **Fill & crop**.
 - If a PDF has **text closer than 5 mm to the edge** (or running off it), you get a warning naming the text. Images can't be checked for this – look at the safe zone in the preview.
-- For a **split poster**, upload one PDF with one panel per page and tick **Split poster**. Each panel is printed untouched with an 8 mm white gap around it, and short crop marks on the line of every edge (outside the panels only – nothing in the gaps). Cut on the marks and the panels butt together exactly. Labelled “Panel 1 of 3” etc.
+- For a **split poster**, upload one PDF with one panel per page and tick **Split poster**. Each panel is one piece with its own bleed and crop marks. For panels printed untouched with a white gap (no bleed), set the bleed to 0 and the gap to 8 mm in ⚙ Settings. Labelled “Panel 1 of 3” etc.
 
 Or click a **preset** (e.g. “A4 posters – 13×19”) to set everything at once. You can save your own presets.
 
@@ -83,20 +83,20 @@ No sample file from the printer was in `/print-reference/` yet, so these are **n
 | Setting | Default | Question for the printer |
 |---|---|---|
 | Sheet | 13 × 19 in (330.2 × 482.6 mm), portrait | Exact sheet size? Any other sheets (SRA3 = 320 × 450 mm)? |
-| Bleed | 0 mm (design printed exactly as it is) | Set e.g. 3 mm if the printer wants bleed. |
-| Crop mark length | 4 mm (as the CorelDRAW reference) | OK? |
-| Crop mark offset | 1 mm from the cut corner (as the CorelDRAW reference) | OK? (Must be ≥ bleed, otherwise marks would sit on the artwork.) |
+| Bleed | 3 mm on every side | OK? (0 = design printed exactly as it is) |
+| Crop mark length | 5 mm | OK? |
+| Crop mark offset | 3 mm from the cut corner (just outside the bleed) | OK? (Must be ≥ bleed, otherwise marks would sit on the artwork.) |
 | Crop mark thickness | 0.25 pt | OK? |
 | Crop mark colour | Registration (C+M+Y+K) | Or 100 % black only? |
 | Sheet margin | 10 mm to the artwork (incl. bleed) | **Important** – see below |
 | Keep away from edge | 3 mm (marks and label) | What is the printer's non-printable edge (gripper)? |
-| Gap between copies | 8 mm (white) | OK? |
+| Gap between copies | 0 mm (bleeds touch) | OK? |
 | Safe zone | 5 mm inside the cut | OK? |
 | Automatic bleed for PDFs | 300 DPI image strips (or vector copies) | Is a 300 DPI RGB strip fine in the bleed? |
 
 **About the margin:** with a 10 mm margin, there is *not* enough room on a 13 × 19 sheet for A4 2-up or A5 4-up if the crop marks must *also* stay inside the 10 mm. So the app keeps the **artwork + bleed** at least 10 mm from the edge, and lets crop marks and the label go into that margin (but never closer than 3 mm to the edge). For A5 4-up the side crop marks end about 6 mm from the sheet edge. Please check that the printer can print that close to the edge.
 
-**About crop marks between copies:** a mark pointing into the gap between two copies is left out unless the gap is big enough for both copies' marks without touching (2 × (offset + length) − bleed + 0.5 mm; 10.5 mm with the defaults). Every cut line still has marks on the outside of the block – this is the usual way ganged sheets are cut.
+**About crop marks between copies:** a mark pointing into the gap between two copies is left out unless the gap is big enough for both copies' marks without touching (2 × (offset + length) − bleed + 0.5 mm; 13.5 mm with the defaults). Every cut line still has marks on the outside of the block – this is the usual way ganged sheets are cut.
 
 **About A3 sheets:** an A3 design with bleed (303 × 426 mm) is bigger than an A3 sheet, so it can't be printed on A3 – the app shows a warning. On an A3 sheet you get A4 = 1 and A5 = 2 per sheet.
 

@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PrintSettings } from './config/defaults'
 import { detectBleed, planArtwork, sizeMatches, suggestTrim } from './lib/artwork'
 import { buildItems, checkDesign, type Design, type DesignCheck } from './lib/job'
 import { groupKey, layoutJob, type PlacementOverride } from './lib/layout'
-import { pdfTextItems, thumbnail } from './lib/pdfRender'
 import { edgeTextWarning, textNearEdge } from './lib/textCheck'
 import { type Preset, loadSettings, loadUserPresets, saveSettings, saveUserPresets } from './lib/presets'
 import { type SourceFile, newId, readSource } from './lib/sources'
@@ -11,9 +10,14 @@ import Header, { ActionBar, type Step } from './components/Header'
 import { ToastHost } from './components/ui'
 import UploadStep from './components/UploadStep'
 import SizeStep from './components/SizeStep'
-import PreviewStep from './components/PreviewStep'
-import DownloadStep from './components/DownloadStep'
 import SettingsDialog from './components/SettingsDialog'
+
+// pdf.js and the preview / download screens are loaded on demand, so the app opens faster
+const pdfRender = () => import('./lib/pdfRender')
+const loadPreview = () => import('./components/PreviewStep')
+const loadDownload = () => import('./components/DownloadStep')
+const PreviewStep = lazy(loadPreview)
+const DownloadStep = lazy(loadDownload)
 
 /**
  * Re-runs automatic bleed detection for a design.
@@ -69,7 +73,7 @@ export default function App() {
         for (const p of d.split ? src.pages : [src.pages[d.pageIndex] ?? src.pages[0]]) {
           try {
             const plan = planArtwork(p.geometry, d.trimW, d.trimH, settings.bleedMm, d.bleedMode, d.fit)
-            found.push(...textNearEdge(await pdfTextItems(src.bytes, p.index), p, plan, d.trimW, d.trimH, settings.safeZoneMm))
+            found.push(...textNearEdge(await (await pdfRender()).pdfTextItems(src.bytes, p.index), p, plan, d.trimW, d.trimH, settings.safeZoneMm))
           } catch {
             /* unreadable text layer – skip the check */
           }
@@ -152,7 +156,8 @@ export default function App() {
           }
           setSources((s) => ({ ...s, [src.id]: src }))
           setDesigns((ds) => [...ds, design])
-          thumbnail(src.kind, src.bytes)
+          pdfRender()
+            .then((m) => m.thumbnail(src.kind, src.bytes))
             .then((url) => setThumbs((t) => ({ ...t, [src.id]: url })))
             .catch(() => {})
         } catch (e) {
@@ -251,6 +256,10 @@ export default function App() {
   )
 
   const hasDesigns = designs.length > 0
+  // fetch the next screens in the background once there is something to show
+  useEffect(() => {
+    if (hasDesigns) void Promise.all([loadPreview(), loadDownload()]).catch(() => {})
+  }, [hasDesigns])
   const prints = sheets.reduce((n, s) => n + s.placements.length, 0)
   const toCheck = designs.reduce((n, d) => n + (checks[d.id]?.warnings.filter((w) => !w.startsWith('Bleed was added')).length ?? 0), 0)
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
@@ -316,6 +325,7 @@ export default function App() {
             onRepeat={repeatPanel}
           />
         )}
+        <Suspense fallback={<div className="grid h-full place-items-center text-slate-400">Loading…</div>}>
         {step === 'preview' && (
           <PreviewStep
             sheets={sheets}
@@ -333,6 +343,7 @@ export default function App() {
           />
         )}
         {step === 'download' && <DownloadStep sheets={sheets} sources={sources} settings={settings} designs={designs} checks={checks} trimNames={trimNames} />}
+        </Suspense>
         </main>
         <ActionBar {...bar[step]} />
         {showSettings && <SettingsDialog settings={settings} onSave={setSettings} onClose={() => setShowSettings(false)} />}

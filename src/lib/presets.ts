@@ -32,8 +32,8 @@ export const BUILT_IN_PRESETS: Preset[] = [
 ]
 
 const KEY_PRESETS = 'print-ready.presets.v1'
-// v2: defaults changed to no bleed + 8 mm gap; settings saved under v1 are not reused
-const KEY_SETTINGS = 'print-ready.settings.v2'
+// v3: defaults back to 3 mm bleed (marks 3 mm out, bleeds touching); settings saved under v1/v2 are not reused
+const KEY_SETTINGS = 'print-ready.settings.v3'
 
 function read<T>(key: string, fallback: T): T {
   try {
