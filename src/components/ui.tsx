@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { AlertTriangle, CheckCircle2, Info, Minus, Plus, X } from 'lucide-react'
 import type { SourceFile } from '../lib/sources'
 import { expand, round3, type Rect } from '../lib/geometry'
@@ -218,6 +218,21 @@ export function Thumb({ url, alt, size = 'md' }: { url?: string; alt: string; si
       )}
     </div>
   )
+}
+
+export /** Shows a canvas rendered elsewhere (no PNG encode/decode round trip). */
+function CanvasView({ canvas, className, style, label }: { canvas: HTMLCanvasElement; className?: string; style?: CSSProperties; label?: string }) {
+  const host = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = host.current
+    if (!el) return
+    canvas.style.cssText = 'display:block;width:100%;height:100%'
+    el.replaceChildren(canvas)
+    return () => {
+      if (canvas.parentNode === el) el.removeChild(canvas)
+    }
+  }, [canvas])
+  return <div ref={host} role="img" aria-label={label} className={className} style={style} />
 }
 
 /** Colours used to tell designs apart in diagrams. */

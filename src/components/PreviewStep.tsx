@@ -8,9 +8,10 @@ import { type PxRect, browserRasterizer, renderPage } from '../lib/pdfRender'
 import { isSheetReady, sheetBase, sheetPage } from '../lib/sheetPreview'
 import type { SourceFile } from '../lib/sources'
 import type { PDFPageProxy } from 'pdfjs-dist'
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Eye, Maximize, MousePointerClick, Plus, Ruler, RotateCw, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react'
-import { DESIGN_COLORS, SheetDiagram, Stepper, fmtMm } from './ui'
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Eye, FileImage, Maximize, MousePointerClick, Plus, Ruler, RotateCw, Scissors, Undo2, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { CanvasView, DESIGN_COLORS, Segmented, SheetDiagram, Stepper, fmtMm } from './ui'
 import FillSpace from './FillSpace'
+import CutView from './CutView'
 
 /** CSS pixels per mm at 100 % zoom (96 px per inch). */
 const PX_PER_MM_100 = 96 / 25.4
@@ -18,20 +19,6 @@ const RULER = 26
 /** Most pixels rendered for a whole sheet; beyond this only the visible part is rendered. */
 const BASE_BUDGET_PX = 4_000_000
 
-/** Shows a canvas rendered elsewhere (no PNG encode/decode round trip). */
-function CanvasView({ canvas, className, style, label }: { canvas: HTMLCanvasElement; className?: string; style?: React.CSSProperties; label?: string }) {
-  const host = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = host.current
-    if (!el) return
-    canvas.style.cssText = 'display:block;width:100%;height:100%'
-    el.replaceChildren(canvas)
-    return () => {
-      if (canvas.parentNode === el) el.removeChild(canvas)
-    }
-  }, [canvas])
-  return <div ref={host} role="img" aria-label={label} className={className} style={style} />
-}
 
 type Overlays = { trim: boolean; bleed: boolean; safe: boolean; marks: boolean; margin: boolean }
 
@@ -60,6 +47,10 @@ export default function PreviewStep(props: {
   const [selected, setSelected] = useState<string | null>(null)
   const [showLayers, setShowLayers] = useState(false)
   const [fillOpen, setFillOpen] = useState(false)
+  /** 'sheet' = the print sheet as it comes out of the printer; 'cut' = the finished pieces after trimming. */
+  const [view, setView] = useState<'sheet' | 'cut'>('sheet')
+  const viewRef = useRef(view)
+  viewRef.current = view
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -112,6 +103,7 @@ export default function PreviewStep(props: {
     const el = viewport.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
+      if (viewRef.current === 'cut') return // the cut view scrolls normally
       e.preventDefault()
       const r = el.getBoundingClientRect()
       zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top)
@@ -518,6 +510,8 @@ export default function PreviewStep(props: {
             </>
           )}
 
+          {view === 'cut' && <CutView sheet={sheet} sheetKey={sheetKey} sheetH={H} vp={vp} loadPage={loadPage} />}
+
           {/* ---------- floating controls ---------- */}
           <div className="pointer-events-none absolute inset-0">
             {/* sheet navigation */}
@@ -534,155 +528,180 @@ export default function PreviewStep(props: {
             </div>
 
             {/* selected design, or a hint */}
-            <div className="absolute top-4 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
-              {/* measurements: always visible */}
-              <div
-                className="pointer-events-auto flex items-center gap-2 rounded-full bg-white/95 px-3.5 py-1.5 text-xs whitespace-nowrap text-slate-700 shadow-lift backdrop-blur tabular-nums"
-                onPointerDown={(e) => e.stopPropagation()}
-              >
-                <Ruler size={14} className="text-brand-600" />
-                <span>
-                  <b className="text-slate-900">Sheet</b> {settings.sheet.name} · {fmtMm(W)} × {fmtMm(H)} mm
-                </span>
-                <span className="h-4 w-px bg-slate-200" />
-                {sel ? (
+            {view === 'sheet' && (
+              <div className="absolute top-4 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
+                {/* measurements: always visible */}
+                <div
+                  className="pointer-events-auto flex items-center gap-2 rounded-full bg-white/95 px-3.5 py-1.5 text-xs whitespace-nowrap text-slate-700 shadow-lift backdrop-blur tabular-nums"
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <Ruler size={14} className="text-brand-600" />
                   <span>
-                    <b className="text-slate-900">{sel.item.panel ? `Panel ${sel.item.panel.index}` : 'Design'}</b> {sizeName !== 'Custom' ? sizeName + ' · ' : ''}
-                    {fmtMm(sel.trim.w)} × {fmtMm(sel.trim.h)} mm
-                    <span className="text-slate-400">
-                      {' '}
-                      · from left {fmtMm(sel.trim.x)} · from bottom {fmtMm(sel.trim.y)} mm
+                    <b className="text-slate-900">Sheet</b> {settings.sheet.name} · {fmtMm(W)} × {fmtMm(H)} mm
+                  </span>
+                  <span className="h-4 w-px bg-slate-200" />
+                  {sel ? (
+                    <span>
+                      <b className="text-slate-900">{sel.item.panel ? `Panel ${sel.item.panel.index}` : 'Design'}</b> {sizeName !== 'Custom' ? sizeName + ' · ' : ''}
+                      {fmtMm(sel.trim.w)} × {fmtMm(sel.trim.h)} mm
+                      <span className="text-slate-400">
+                        {' '}
+                        · from left {fmtMm(sel.trim.x)} · from bottom {fmtMm(sel.trim.y)} mm
+                      </span>
                     </span>
-                  </span>
+                  ) : (
+                    <span>
+                      <b className="text-slate-900">
+                        {sheet.placements.length} × {sizeName !== 'Custom' ? sizeName : 'design'}
+                      </b>{' '}
+                      {fmtMm(sheet.placements[0]?.trim.w ?? sheet.trimW)} × {fmtMm(sheet.placements[0]?.trim.h ?? sheet.trimH)} mm
+                      {sheet.freeSlots.length > 0 && <span className="font-semibold text-amber-600"> · {sheet.freeSlots.length} empty</span>}
+                    </span>
+                  )}
+                </div>
+                {sel && selDesign ? (
+                  <div className="pointer-events-auto flex animate-fade-up items-center gap-1.5 rounded-2xl bg-white/95 p-1.5 pl-3.5 text-slate-800 shadow-lift backdrop-blur" onPointerDown={(e) => e.stopPropagation()}>
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorOf(selDesign.id) }} />
+                    <span className="max-w-48 truncate text-sm font-semibold">
+                      {sel.item.name}
+                      {sel.item.panel && (
+                        <span className="font-normal text-slate-400">
+                          {' '}
+                          · panel {sel.item.panel.index}/{sel.item.panel.total}
+                        </span>
+                      )}
+                    </span>
+                    <span className="mx-1 h-5 w-px bg-slate-200" />
+                    <button
+                      className="btn-ghost px-2.5 py-1.5"
+                      title="Rotate 90°"
+                      onClick={() => props.setOverride(sel.id, { ...props.overrides[sel.id], quarterTurns: ((props.overrides[sel.id]?.quarterTurns ?? 0) + 1) % 4 })}
+                    >
+                      <RotateCw size={16} /> Rotate
+                    </button>
+                    <button className="btn-ghost px-2.5 py-1.5" disabled={!props.overrides[sel.id]} onClick={() => props.setOverride(sel.id, undefined)} title="Put it back where it was">
+                      <Undo2 size={16} /> Reset
+                    </button>
+                    <span className="mx-1 h-5 w-px bg-slate-200" />
+                    <Stepper size="sm" value={selDesign.copies} onChange={(n) => props.onUpdateDesign(selDesign.id, { copies: n })} label="Copies" />
+                    <button className="btn-icon btn-ghost h-8 w-8 rounded-full" onClick={() => setSelected(null)} aria-label="Deselect">
+                      <X size={16} />
+                    </button>
+                  </div>
                 ) : (
-                  <span>
-                    <b className="text-slate-900">
-                      {sheet.placements.length} × {sizeName !== 'Custom' ? sizeName : 'design'}
-                    </b>{' '}
-                    {fmtMm(sheet.placements[0]?.trim.w ?? sheet.trimW)} × {fmtMm(sheet.placements[0]?.trim.h ?? sheet.trimH)} mm
-                    {sheet.freeSlots.length > 0 && <span className="font-semibold text-amber-600"> · {sheet.freeSlots.length} empty</span>}
-                  </span>
+                  <div className="rounded-full bg-white/10 px-4 py-2 text-xs font-medium whitespace-nowrap text-slate-300 backdrop-blur">
+                    <MousePointerClick size={13} className="mr-1.5 inline -translate-y-px" />
+                    Click a design to see its size, move or rotate it · scroll to zoom · drag to pan
+                  </div>
+                )}
+                {sheet.freeSlots.length > 0 && !fillOpen && (
+                  <button
+                    className="btn pointer-events-auto animate-fade-up rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-amber-950 shadow-lift hover:bg-amber-300"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => setFillOpen(true)}
+                  >
+                    <Plus size={16} /> {sheet.freeSlots.length === 1 ? '1 empty space' : `${sheet.freeSlots.length} empty spaces`} on this sheet – fill it
+                  </button>
+                )}
+                {fillOpen && sheet.freeSlots.length > 0 && (
+                  <div className="pointer-events-auto animate-fade-up" onPointerDown={(e) => e.stopPropagation()}>
+                    <FillSpace
+                      target={{ groupKey: sheet.groupKey, trimName: sizeName, trimW: sheet.trimW, trimH: sheet.trimH, free: sheet.freeSlots.length }}
+                      designs={props.designs}
+                      sources={props.sources}
+                      thumbs={props.thumbs}
+                      onAddFiles={props.onAddFiles}
+                      onRepeat={props.onRepeat}
+                      onClose={() => setFillOpen(false)}
+                    />
+                  </div>
                 )}
               </div>
-              {sel && selDesign ? (
-                <div className="pointer-events-auto flex animate-fade-up items-center gap-1.5 rounded-2xl bg-white/95 p-1.5 pl-3.5 text-slate-800 shadow-lift backdrop-blur" onPointerDown={(e) => e.stopPropagation()}>
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorOf(selDesign.id) }} />
-                  <span className="max-w-48 truncate text-sm font-semibold">
-                    {sel.item.name}
-                    {sel.item.panel && (
-                      <span className="font-normal text-slate-400">
-                        {' '}
-                        · panel {sel.item.panel.index}/{sel.item.panel.total}
-                      </span>
-                    )}
-                  </span>
-                  <span className="mx-1 h-5 w-px bg-slate-200" />
-                  <button
-                    className="btn-ghost px-2.5 py-1.5"
-                    title="Rotate 90°"
-                    onClick={() => props.setOverride(sel.id, { ...props.overrides[sel.id], quarterTurns: ((props.overrides[sel.id]?.quarterTurns ?? 0) + 1) % 4 })}
-                  >
-                    <RotateCw size={16} /> Rotate
-                  </button>
-                  <button className="btn-ghost px-2.5 py-1.5" disabled={!props.overrides[sel.id]} onClick={() => props.setOverride(sel.id, undefined)} title="Put it back where it was">
-                    <Undo2 size={16} /> Reset
-                  </button>
-                  <span className="mx-1 h-5 w-px bg-slate-200" />
-                  <Stepper size="sm" value={selDesign.copies} onChange={(n) => props.onUpdateDesign(selDesign.id, { copies: n })} label="Copies" />
-                  <button className="btn-icon btn-ghost h-8 w-8 rounded-full" onClick={() => setSelected(null)} aria-label="Deselect">
-                    <X size={16} />
-                  </button>
-                </div>
-              ) : (
-                <div className="rounded-full bg-white/10 px-4 py-2 text-xs font-medium whitespace-nowrap text-slate-300 backdrop-blur">
-                  <MousePointerClick size={13} className="mr-1.5 inline -translate-y-px" />
-                  Click a design to see its size, move or rotate it · scroll to zoom · drag to pan
-                </div>
-              )}
-              {sheet.freeSlots.length > 0 && !fillOpen && (
-                <button
-                  className="btn pointer-events-auto animate-fade-up rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-amber-950 shadow-lift hover:bg-amber-300"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => setFillOpen(true)}
-                >
-                  <Plus size={16} /> {sheet.freeSlots.length === 1 ? '1 empty space' : `${sheet.freeSlots.length} empty spaces`} on this sheet – fill it
-                </button>
-              )}
-              {fillOpen && sheet.freeSlots.length > 0 && (
-                <div className="pointer-events-auto animate-fade-up" onPointerDown={(e) => e.stopPropagation()}>
-                  <FillSpace
-                    target={{ groupKey: sheet.groupKey, trimName: sizeName, trimW: sheet.trimW, trimH: sheet.trimH, free: sheet.freeSlots.length }}
-                    designs={props.designs}
-                    sources={props.sources}
-                    thumbs={props.thumbs}
-                    onAddFiles={props.onAddFiles}
-                    onRepeat={props.onRepeat}
-                    onClose={() => setFillOpen(false)}
-                  />
-                </div>
-              )}
-            </div>
+            )}
 
-            {/* what to show */}
-            <div className="pointer-events-auto absolute top-4 right-4" onPointerDown={(e) => e.stopPropagation()}>
-              <button className="btn rounded-full bg-white/95 px-3.5 py-2 text-slate-800 shadow-lift backdrop-blur hover:bg-white" onClick={() => setShowLayers(!showLayers)} aria-expanded={showLayers}>
-                <Eye size={16} /> Show
-                <ChevronDown size={14} className={`transition-transform ${showLayers ? 'rotate-180' : ''}`} />
-              </button>
-              {showLayers && (
-                <div className="absolute right-0 mt-2 w-60 animate-fade-up rounded-2xl bg-white p-2 text-slate-800 shadow-lift">
-                  {LAYERS.map(([k, label, color]) => (
-                    <button
-                      key={k}
-                      role="switch"
-                      aria-checked={overlays[k]}
-                      onClick={() => setOverlays({ ...overlays, [k]: !overlays[k] })}
-                      className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm font-medium hover:bg-slate-50"
-                    >
-                      <span className="h-3 w-3 rounded-full" style={{ background: color, opacity: overlays[k] ? 1 : 0.25 }} />
-                      <span className="flex-1">{label}</span>
-                      <span className={`relative h-5 w-8 rounded-full transition-colors ${overlays[k] ? 'bg-brand-600' : 'bg-slate-200'}`}>
-                        <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${overlays[k] ? 'translate-x-3' : ''}`} />
-                      </span>
-                    </button>
-                  ))}
+            {/* print sheet / after cutting, and what to show */}
+            <div className="pointer-events-auto absolute top-4 right-4 flex items-start gap-2" onPointerDown={(e) => e.stopPropagation()}>
+              <div className="rounded-2xl bg-white/95 p-1 shadow-lift backdrop-blur">
+                <Segmented
+                  size="sm"
+                  aria-label="View"
+                  value={view}
+                  onChange={(v) => {
+                    setView(v)
+                    setSelected(null)
+                    setFillOpen(false)
+                    setShowLayers(false)
+                  }}
+                  options={[
+                    { value: 'sheet', label: <><FileImage size={14} /> Print sheet</>, hint: 'The sheet as it comes out of the printer' },
+                    { value: 'cut', label: <><Scissors size={14} /> After cutting</>, hint: 'The finished pieces, cut on the crop marks' },
+                  ]}
+                />
+              </div>
+              {view === 'sheet' && (
+                <div className="relative">
+                  <button className="btn rounded-full bg-white/95 px-3.5 py-2 text-slate-800 shadow-lift backdrop-blur hover:bg-white" onClick={() => setShowLayers(!showLayers)} aria-expanded={showLayers}>
+                    <Eye size={16} /> Show
+                    <ChevronDown size={14} className={`transition-transform ${showLayers ? 'rotate-180' : ''}`} />
+                  </button>
+                  {showLayers && (
+                    <div className="absolute right-0 mt-2 w-60 animate-fade-up rounded-2xl bg-white p-2 text-slate-800 shadow-lift">
+                      {LAYERS.map(([k, label, color]) => (
+                        <button
+                          key={k}
+                          role="switch"
+                          aria-checked={overlays[k]}
+                          onClick={() => setOverlays({ ...overlays, [k]: !overlays[k] })}
+                          className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm font-medium hover:bg-slate-50"
+                        >
+                          <span className="h-3 w-3 rounded-full" style={{ background: color, opacity: overlays[k] ? 1 : 0.25 }} />
+                          <span className="flex-1">{label}</span>
+                          <span className={`relative h-5 w-8 rounded-full transition-colors ${overlays[k] ? 'bg-brand-600' : 'bg-slate-200'}`}>
+                            <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${overlays[k] ? 'translate-x-3' : ''}`} />
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* zoom */}
-            <div
-              className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-white/95 p-1 text-slate-800 shadow-lift backdrop-blur"
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <button className="btn-icon rounded-full hover:bg-slate-100" onClick={() => zoomAt(1 / 1.25)} aria-label="Zoom out">
-                <ZoomOut size={17} />
-              </button>
-              <span className="w-12 text-center text-sm font-semibold tabular-nums">{zoomPct}%</span>
-              <button className="btn-icon rounded-full hover:bg-slate-100" onClick={() => zoomAt(1.25)} aria-label="Zoom in">
-                <ZoomIn size={17} />
-              </button>
-              <span className="mx-1 h-5 w-px bg-slate-200" />
-              <button className="btn rounded-full px-3 py-1.5 hover:bg-slate-100" onClick={fit}>
-                <Maximize size={15} /> Fit
-              </button>
-              <button
-                className="btn rounded-full px-3 py-1.5 hover:bg-slate-100"
-                title="Real size on screen"
-                onClick={() => {
-                  const z = PX_PER_MM_100
-                  setPan((p) => ({ x: vp.w / 2 - ((vp.w / 2 - p.x) / zoom) * z, y: vp.h / 2 - ((vp.h / 2 - p.y) / zoom) * z }))
-                  setZoom(z)
-                }}
+            {view === 'sheet' && (
+              <div
+                className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-white/95 p-1 text-slate-800 shadow-lift backdrop-blur"
+                onPointerDown={(e) => e.stopPropagation()}
               >
-                100%
-              </button>
-            </div>
+                <button className="btn-icon rounded-full hover:bg-slate-100" onClick={() => zoomAt(1 / 1.25)} aria-label="Zoom out">
+                  <ZoomOut size={17} />
+                </button>
+                <span className="w-12 text-center text-sm font-semibold tabular-nums">{zoomPct}%</span>
+                <button className="btn-icon rounded-full hover:bg-slate-100" onClick={() => zoomAt(1.25)} aria-label="Zoom in">
+                  <ZoomIn size={17} />
+                </button>
+                <span className="mx-1 h-5 w-px bg-slate-200" />
+                <button className="btn rounded-full px-3 py-1.5 hover:bg-slate-100" onClick={fit}>
+                  <Maximize size={15} /> Fit
+                </button>
+                <button
+                  className="btn rounded-full px-3 py-1.5 hover:bg-slate-100"
+                  title="Real size on screen"
+                  onClick={() => {
+                    const z = PX_PER_MM_100
+                    setPan((p) => ({ x: vp.w / 2 - ((vp.w / 2 - p.x) / zoom) * z, y: vp.h / 2 - ((vp.h / 2 - p.y) / zoom) * z }))
+                    setZoom(z)
+                  }}
+                >
+                  100%
+                </button>
+              </div>
+            )}
 
             {/* cursor position */}
             <div className="absolute right-4 bottom-4 flex items-center gap-2 rounded-full bg-black/40 px-3.5 py-1.5 text-[11px] font-medium text-slate-300 tabular-nums backdrop-blur">
               {(busy || detailBusy) && <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-500 border-t-white" />}
-              {cursor ? `x ${cursor.x.toFixed(1)} · y ${cursor.y.toFixed(1)} mm` : `${fmtMm(W)} × ${fmtMm(H)} mm`}
+              {view === 'cut' ? `${sheet.placements.length} × ${fmtMm(sheet.placements[0]?.item.trimW ?? sheet.trimW)} × ${fmtMm(sheet.placements[0]?.item.trimH ?? sheet.trimH)} mm` : cursor ? `x ${cursor.x.toFixed(1)} · y ${cursor.y.toFixed(1)} mm` : `${fmtMm(W)} × ${fmtMm(H)} mm`}
             </div>
 
             {/* problems */}
