@@ -1,12 +1,16 @@
 # Print Ready
 
-Prepares finished poster designs for printing, automatically:
+When the app opens, choose **Posters** or **Stickers**. (Click the logo at any time to come back to this choice – work in the other tool is kept.)
+
+**Posters** prepares finished poster designs for printing, automatically:
 
 1. adds **crop marks** that line up with the design edges (the design itself is printed exactly as it is – not scaled, not extended),
 2. adds **3 mm bleed** on every side (the file's own bleed, or mirrored from its edges),
 3. puts as many copies as fit on the **print sheet** (13 × 19 inch or A3),
 
 and exports **one print-ready PDF**. No CorelDRAW needed.
+
+**Stickers** makes die-cut / kiss-cut sticker sheets: a cut line around every design (like CorelDRAW's Contour tool), background removal, and full A4 / A3 sheets with registration marks for the plotter. See [Stickers](#stickers) below.
 
 Everything runs on your own computer. Files are never uploaded anywhere.
 
@@ -74,6 +78,38 @@ Under **Copies per sheet** you can see how many fit (13 × 19: A3 = 1, A4 = 2, A
 
 ---
 
+## Stickers
+
+**1 · Add stickers** – Drop PNG, JPG or WebP images (PNG with a transparent background gives the best result).
+- A logo on a **plain white or flat-colour background** has that background removed automatically (undo with *Keep background* in step 2).
+
+**2 · Cut line** – For each sticker:
+- **Background**: *Remove (AI)* for photos and complex images, or *Plain colour* (instant) for logos and clipart. The AI model (ORMBG) is downloaded once (~85–170 MB, needs internet the first time) and then runs on this computer – the image itself is never uploaded.
+- **Size**: the finished size including the border, in inches or mm. Quick sizes (1.5″ – 5″) set the longest side. A DPI badge warns when the image is too small for that size.
+- **Shape**: *Contour* follows the outline of the design (die-cut); *Rounded*, *Square*, *Circle* are exact vector shapes.
+- **Border**: *White* (unprinted paper between design and cut), *Colour* (printed border), or *None* (cut right on the design edge – the edge colours are carried past the cut as bleed).
+- **Smoothing** fills small gaps and notches so the blade cuts one clean line. If a design has separate parts, *Join into one sticker* raises it until they join.
+- *Finished* shows the sticker as it will look after cutting.
+
+**3 · Sheet** – Choose A4, A3 or 13 × 19 and the number of copies. *Fill sheet* adds copies until the last sheet is full. Stickers are packed by their real shape (round and odd-shaped stickers nest into each other's gaps) and turned 90° when more fit. Drag a sticker to move it; touching cut lines are flagged in red.
+
+**4 · Download**
+- **Print & cut PDF** (main file) – artwork on a layer called *Print*, cut lines on a layer called *CutContour*. The cut lines use a **spot colour named `CutContour`** (shown as magenta, set to overprint): VersaWorks, Fiery XF, Onyx, Caldera, Summa / Graphtec software recognise this as the cut path instead of printing it.
+- **Print only** / **Cut lines only** PDFs and a **cut SVG** per sheet, for cutters that want separate files.
+
+### Sticker settings – please check these once with your cutter
+
+All defaults are in **`src/stickers/config.ts`** and can be changed in the app (⚙ top right):
+
+| Setting | Default | What to check |
+|---|---|---|
+| Sheet | A4 | Your sticker paper size |
+| Registration marks | L-shaped corners, 20 mm arms, 0.5 mm thick, 10 mm from the edge | The mark type your cutter reads (Graphtec ARMS type, Silhouette, Summa OPOS…). Also *Squares*, *Silhouette* style, or *None* for die / laser cutting |
+| Clearance | 5 mm between marks and stickers | Your cutter's sensor needs |
+| Gap between stickers | 3 mm (cut line to cut line) | Enough room to weed |
+| Bleed | 1.5 mm past the cut line | Your cutter's accuracy (at most half the gap) |
+| Cut spot colour | `CutContour`, 0.25 pt | The exact name your RIP looks for |
+
 ## Settings – please confirm these with the printer
 
 All defaults live in one file: **`src/config/defaults.ts`**. They can also be changed in the app (**⚙ Settings** button; saved in that browser).
@@ -122,6 +158,17 @@ src/lib/sources.ts       reads PDFs (boxes, page rotation) and image sizes
 src/components/          the 4 screens + settings dialog
 tests/                   vitest: layout maths and the exported PDF
 scripts/generate-samples.ts
+
+src/Root.tsx                     start screen (Posters / Stickers), #/posters and #/stickers
+src/stickers/config.ts           all sticker settings (one place)
+src/stickers/lib/edt.ts          exact Euclidean distance transform (offsets, hole filling)
+src/stickers/lib/cutline.ts      artwork outline → offset, smoothing, bleed (the "Contour")
+src/stickers/lib/paths.ts        marching squares, simplification, Bézier fitting, shapes
+src/stickers/lib/nest.ts         shape-aware layout: lattice for one design, skyline for mixed sheets
+src/stickers/lib/matte.ts        background removal maths (plain colour, AI mask refinement)
+src/stickers/lib/exportStickers.ts  PDF (Print + CutContour layers, spot colour) and SVG
+src/stickers/workers/            cut lines and background removal run off the main thread
+tests/stickers.test.ts           cut line accuracy, layout, export
 ```
 
 1 mm = 72 / 25.4 pt = 2.834645… pt. All maths is done in mm and converted once when writing the PDF.
@@ -140,6 +187,9 @@ scripts/generate-samples.ts
 | Vite 8, @vitejs/plugin-react | MIT | Dev server / build (dev only) |
 | Vitest 5, tsx | MIT | Tests and sample script (dev only) |
 | TypeScript 7 | Apache-2.0 | Type checking (dev only) |
+| Transformers.js (@huggingface/transformers 4.3) | Apache-2.0 | Sticker background removal, in the browser |
+| ONNX Runtime Web (bundled with Transformers.js) | MIT | Runs the background removal model |
+| ORMBG model (downloaded at first use) | Apache-2.0 | The background removal model itself |
 | @napi-rs/canvas | MIT | Renders the 300 DPI bleed strips in tests and the sample script (dev only; the app uses the browser) |
 
 All are free, open-source licences that allow commercial use.

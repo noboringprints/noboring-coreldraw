@@ -11,9 +11,10 @@ export const STEPS: { id: Step; label: string }[] = [
   { id: 'download', label: 'Download' },
 ]
 
+/** The app logo; it also leads back to the start screen (posters or stickers). */
 export function Logo() {
   return (
-    <div className="flex items-center gap-2.5">
+    <a href="#/" title="Start screen – posters or stickers" className="flex items-center gap-2.5 rounded-xl focus-visible:ring-4 focus-visible:ring-brand-200 focus-visible:outline-none">
       <div className="relative grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 shadow-[0_4px_12px_rgb(91_47_245/0.35)]">
         <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden>
           <rect x="5" y="5" width="10" height="10" rx="1.5" fill="#fff" />
@@ -24,7 +25,7 @@ export function Logo() {
         <div className="text-[15px] font-bold tracking-tight">Print Ready</div>
         <div className="mt-0.5 text-[11px] font-medium text-slate-400">bleed · marks · layout</div>
       </div>
-    </div>
+    </a>
   )
 }
 
