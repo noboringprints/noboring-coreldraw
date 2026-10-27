@@ -5,7 +5,17 @@ import { Drawer, NumberField, Notice, Segmented, Switch, fmtMm } from '../../com
 import { DEFAULT_STICKER_SETTINGS, type MarkStyle, STICKER_SHEETS, type StickerSettings, cloneStickerSettings, contentInsetMm, stickerSettingsProblems } from '../config'
 import { Row, Section } from './CutStep'
 
-export default function StickerSettingsDialog(props: { settings: StickerSettings; onSave: (s: StickerSettings) => void; onClose: () => void }) {
+export default function StickerSettingsDialog(props: {
+  settings: StickerSettings
+  onSave: (s: StickerSettings) => void
+  onClose: () => void
+  /** What the tool calls one piece, e.g. 'sticker'. */
+  noun?: string
+  paperName?: string
+  defaults?: StickerSettings
+}) {
+  const noun = props.noun ?? 'sticker'
+  const defaults = props.defaults ?? DEFAULT_STICKER_SETTINGS
   const [s, setS] = useState<StickerSettings>(() => cloneStickerSettings(props.settings))
   const set = (patch: Partial<StickerSettings>) => setS({ ...s, ...patch })
   const setMarks = (patch: Partial<StickerSettings['marks']>) => setS({ ...s, marks: { ...s.marks, ...patch } })
@@ -21,7 +31,7 @@ export default function StickerSettingsDialog(props: { settings: StickerSettings
       onClose={props.onClose}
       footer={
         <div className="flex items-center gap-2">
-          <button className="btn-ghost" onClick={() => setS({ ...cloneStickerSettings(DEFAULT_STICKER_SETTINGS), units: s.units })}>
+          <button className="btn-ghost" onClick={() => setS({ ...cloneStickerSettings(defaults), units: s.units })}>
             <RotateCcw size={15} /> Defaults
           </button>
           <span className="flex-1" />
@@ -48,7 +58,7 @@ export default function StickerSettingsDialog(props: { settings: StickerSettings
         </div>
       )}
 
-      <Section icon={<FileText size={15} />} title="Sticker paper">
+      <Section icon={<FileText size={15} />} title={props.paperName ?? 'Sticker paper'}>
         <Segmented
           full
           aria-label="Sheet size"
@@ -102,15 +112,15 @@ export default function StickerSettingsDialog(props: { settings: StickerSettings
           </Row>
         )}
         {m !== 'none' && (
-          <Row label="Clearance" hint="Free space between marks and stickers">
+          <Row label="Clearance" hint={`Free space between marks and ${noun}s`}>
             <NumberField value={s.marks.clearanceMm} min={0} max={50} onChange={(n) => setMarks({ clearanceMm: n })} suffix="mm" />
           </Row>
         )}
-        <div className="text-xs text-slate-500">Stickers stay at least {fmtMm(contentInsetMm(s))} mm from the sheet edge.</div>
+        <div className="text-xs text-slate-500"><span className="capitalize">{noun}s</span> stay at least {fmtMm(contentInsetMm(s))} mm from the sheet edge.</div>
       </Section>
 
       <Section icon={<LayoutGrid size={15} />} title="Spacing & bleed">
-        <Row label="Gap between stickers" hint="Between neighbouring cut lines">
+        <Row label={`Gap between ${noun}s`} hint="Between neighbouring cut lines">
           <NumberField value={s.gapMm} min={0} max={30} onChange={(n) => set({ gapMm: n })} suffix="mm" />
         </Row>
         <Row label="Bleed" hint="Printed past the cut line for coloured borders and edge-to-edge designs">
@@ -146,7 +156,7 @@ export default function StickerSettingsDialog(props: { settings: StickerSettings
         <Row label="Sheet label" hint="Sheet number, size and date in the bottom margin">
           <Switch checked={s.label} onChange={(v) => set({ label: v })} />
         </Row>
-        <Row label="Low-resolution warning" hint="Warn when a sticker prints below this">
+        <Row label="Low-resolution warning" hint={`Warn when a ${noun} prints below this`}>
           <NumberField value={s.minDpi} min={50} max={1200} onChange={(n) => set({ minDpi: n })} suffix="DPI" />
         </Row>
       </Section>

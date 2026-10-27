@@ -57,8 +57,10 @@ export interface ExportDesign {
   bounds: Rect
   border: BorderStyle
   borderColor: string
-  art: { bytes: Uint8Array; kind: 'png' | 'jpg'; rect: Rect }
+  art?: { bytes: Uint8Array; kind: 'png' | 'jpg'; rect: Rect }
   bleedImage?: { png: Uint8Array; rect: Rect }
+  /** Draws the artwork itself instead of `art` (e.g. a vector PDF page), in local mm: the transform and the bleed clip are already set. */
+  drawArt?: (doc: PDFDocument, page: PDFPage) => Promise<void>
 }
 
 export type ExportMode = 'print-cut' | 'print' | 'cut'
@@ -67,18 +69,20 @@ export interface StickerExportOptions {
   mode: ExportMode
   date?: Date
   title?: string
+  /** What one placed piece is called in the sheet label. */
+  noun?: string
 }
 
-export function sheetLabel(sheet: StickerSheetLayout, total: number, s: StickerSettings, names: Record<string, string>, date: Date): string {
+export function sheetLabel(sheet: StickerSheetLayout, total: number, s: StickerSettings, names: Record<string, string>, date: Date, noun = 'sticker'): string {
   const n = sheet.placements.length
   const designs = [...new Set(sheet.placements.map((p) => names[p.designId] ?? ''))].filter(Boolean)
   const d = date.toISOString().slice(0, 10)
-  return `Sheet ${sheet.index + 1} of ${total}  |  ${s.sheet.name}  |  ${n} sticker${n === 1 ? '' : 's'}: ${designs.join(', ')}  |  cut: ${s.cut.spotName}  |  ${d}`
+  return `Sheet ${sheet.index + 1} of ${total}  |  ${s.sheet.name}  |  ${n} ${noun}${n === 1 ? '' : 's'}: ${designs.join(', ')}  |  cut: ${s.cut.spotName}  |  ${d}`
 }
 
 /* ------------------------------------------------------------------ PDF */
 
-function pathOps(paths: BezierPath[], m: Matrix): PDFOperator[] {
+export function pathOps(paths: BezierPath[], m: Matrix): PDFOperator[] {
   const ops: PDFOperator[] = []
   for (const p of paths) {
     const [x0, y0] = apply(m, p.start[0], p.start[1])
@@ -184,9 +188,12 @@ export async function buildStickerPdf(
           const r = d.bleedImage.rect
           page.pushOperators(pushGraphicsState(), cm([r.w, 0, 0, r.h, r.x, r.y]), drawObject(page.node.newXObject('Bleed', img.ref)), popGraphicsState())
         }
-        const art = await image(`${d.id}:art`, d.art.bytes, d.art.kind)
-        const r = d.art.rect
-        page.pushOperators(pushGraphicsState(), cm([r.w, 0, 0, r.h, r.x, r.y]), drawObject(page.node.newXObject('Art', art.ref)), popGraphicsState())
+        if (d.drawArt) await d.drawArt(doc, page)
+        else if (d.art) {
+          const art = await image(`${d.id}:art`, d.art.bytes, d.art.kind)
+          const r = d.art.rect
+          page.pushOperators(pushGraphicsState(), cm([r.w, 0, 0, r.h, r.x, r.y]), drawObject(page.node.newXObject('Art', art.ref)), popGraphicsState())
+        }
         page.pushOperators(popGraphicsState())
       }
       page.pushOperators(emc())
@@ -200,7 +207,7 @@ export async function buildStickerPdf(
     if (s.label && s.marginMm >= 4) {
       const size = 6
       const max = W - 2 * (s.marginMm + s.marks.lengthMm + 4) * PT_PER_MM
-      let text = sheetLabel(sheet, sheets.length, s, names, date).replace(/[^\x20-\x7e]/g, '?')
+      let text = sheetLabel(sheet, sheets.length, s, names, date, opts.noun).replace(/[^\x20-\x7e]/g, '?')
       while (text.length > 4 && font.widthOfTextAtSize(text, size) > max) text = text.slice(0, -2)
       const tw = font.widthOfTextAtSize(text, size)
       page.pushOperators(bdc(withPrint ? 'OCPrint' : 'OCCut'))

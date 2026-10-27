@@ -313,6 +313,51 @@ interface Job {
   next: number
 }
 
+interface PlannedSpot {
+  j: Job
+  rot: Rotation
+  M: PackMask
+  x: number
+  y: number
+}
+
+/** Each sticker dropped into the lowest spot it fits, so different shapes fill each other's gaps. */
+function skylinePlan(order: Job[], AW: number, AH: number): PlannedSpot[] {
+  const sky = new Int32Array(AW)
+  const out: PlannedSpot[] = []
+  for (const j of order) {
+    for (let left = j.left; left > 0; left--) {
+      let best: PlannedSpot | null = null
+      for (const { rot, M } of j.shapes) {
+        const spot = skylineSpot(sky, M, profileOf(M), AW, AH)
+        if (spot && (!best || spot.y < best.y)) best = { j, rot, M, ...spot }
+      }
+      if (!best) break
+      raiseSkyline(sky, best.x, best.y, profileOf(best.M))
+      out.push(best)
+    }
+  }
+  return out
+}
+
+/** Each design as a neat block of lattice rows, stacked down the sheet (what greedy dropping misses for tidy grids). */
+function blockPlan(order: Job[], AW: number, AH: number): PlannedSpot[] {
+  const out: PlannedSpot[] = []
+  let y0 = 0
+  for (const j of order) {
+    let best: { pos: [number, number][]; bottom: number; rot: Rotation; M: PackMask } | null = null
+    for (const { rot, M } of j.shapes)
+      for (const L of lattices(M)) {
+        const r = latticePositions(L, M, AW, AH, y0, j.left)
+        if (!best || r.pos.length > best.pos.length || (r.pos.length === best.pos.length && r.bottom < best.bottom)) best = { ...r, rot, M }
+      }
+    if (!best?.pos.length) continue
+    for (const [x, y] of best.pos) out.push({ j, rot: best.rot, M: best.M, x, y })
+    y0 = best.bottom
+  }
+  return out
+}
+
 /**
  * Lays out all designs. Pure and fast (masks and lattices are cached), so it runs on every change.
  * - A sheet that one design fills on its own gets that design's lattice: neat rows, the most per sheet.
@@ -369,21 +414,13 @@ export function nest(designs: NestDesign[], s: StickerSettings): NestResult {
         spans.push([x, x + M.w])
       }
     } else {
-      // several designs: biggest first, each dropped into the lowest spot it fits
-      const sky = new Int32Array(AW)
+      // several designs, biggest first: try shape-by-shape and block-by-block, keep whichever fits more
       const order = [...active].sort((a, b) => b.shapes[0].M.w * b.shapes[0].M.h - a.shapes[0].M.w * a.shapes[0].M.h)
-      for (const j of order) {
-        while (j.left > 0) {
-          let best: { x: number; y: number; rot: Rotation; M: PackMask } | null = null
-          for (const { rot, M } of j.shapes) {
-            const spot = skylineSpot(sky, M, profileOf(M), AW, AH)
-            if (spot && (!best || spot.y < best.y)) best = { ...spot, rot, M }
-          }
-          if (!best) break
-          raiseSkyline(sky, best.x, best.y, profileOf(best.M))
-          place(sheet, j, best.rot, best.x, best.y)
-          spans.push([best.x, best.x + best.M.w])
-        }
+      const a = skylinePlan(order, AW, AH)
+      const b = blockPlan(order, AW, AH)
+      for (const q of b.length > a.length ? b : a) {
+        place(sheet, q.j, q.rot, q.x, q.y)
+        spans.push([q.x, q.x + q.M.w])
       }
     }
     if (!sheet.placements.length) break // nothing fits (can't happen: every job fits an empty sheet)

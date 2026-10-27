@@ -1,6 +1,6 @@
 # Print Ready
 
-When the app opens, choose **Posters** or **Stickers**. (Click the logo at any time to come back to this choice – work in the other tool is kept.)
+When the app opens, choose **Posters**, **Stickers** or **Print & Cut**. (Click the logo at any time to come back to this choice – work in the other tool is kept.)
 
 **Posters** prepares finished poster designs for printing, automatically:
 
@@ -11,6 +11,8 @@ When the app opens, choose **Posters** or **Stickers**. (Click the logo at any t
 and exports **one print-ready PDF**. No CorelDRAW needed.
 
 **Stickers** makes die-cut / kiss-cut sticker sheets: a cut line around every design (like CorelDRAW's Contour tool), background removal, and full A4 / A3 sheets with registration marks for the plotter. See [Stickers](#stickers) below.
+
+**Print & Cut** gangs finished designs of *any* size and shape – round coasters, mug wraps, labels, tags – onto one 13 × 19 sheet, each at its exact size with bleed and a CutContour line, ready for the plotter. See [Print & Cut](#print--cut) below.
 
 Everything runs on your own computer. Files are never uploaded anywhere.
 
@@ -110,6 +112,24 @@ All defaults are in **`src/stickers/config.ts`** and can be changed in the app (
 | Bleed | 1.5 mm past the cut line | Your cutter's accuracy (at most half the gap) |
 | Cut spot colour | `CutContour`, 0.25 pt | The exact name your RIP looks for |
 
+## Print & Cut
+
+One screen: designs on the left, the sheet on the right, download at the bottom.
+
+1. **Drop PDF, PNG or JPG files** (several at once; every page of a PDF becomes its own piece). Each piece keeps its **exact size from the file** – an 82 mm file prints at 82 mm, a 250 × 84.06 mm file at 250 × 84.06 mm.
+2. **Remembered sizes** – a file whose size matches a remembered product (± 1 mm, with or without bleed in the file) gets that product's name and cut shape automatically. Two come built in: *Round 82 mm* (circle) and *Mug wrap 250 × 84* (rectangle). Click a piece → **Remember size** to add your own; the list is at the bottom of the left panel. Images without a stored DPI are matched by their proportions.
+3. Click a piece to change it:
+   - **Size** (proportions locked by default – the link button frees them),
+   - **Cut**: *Rectangle*, *Rounded* (corner radius) or *Circle* (oval when width ≠ height),
+   - **Bleed**: *Extend edge* (an enlarged copy of the design under it – an even bleed for **any shape**, the default for circles), *Mirror edges* / *Stretch edge pixels* (rectangles), *File already has bleed* (only offered when it really has), or *None*. The design itself is never scaled.
+   - **Copies**, **Fill sheet** (adds copies until the last sheet is full), **Turn** (Auto / Upright / 90°), **Duplicate** (e.g. the same design at another size), **Remove**.
+4. The sheet updates instantly: pieces are packed by their real shape (circles nest into each other's gaps; each design is tried both as tidy rows and as shape-by-shape packing, whichever fits more), on as many sheets as needed. Drag a piece to move it; click it to open its settings. Touching cut lines are flagged in red.
+5. **Download print & cut PDF** – same file format as the sticker tool: artwork on the *Print* layer (PDFs stay vector), cut lines on the *CutContour* layer in the `CutContour` spot colour, registration marks and a sheet label. *Print only*, *Cut only* and *Cut SVG* (one per sheet) are there too.
+
+The **job is saved in this browser** automatically (files and settings, never uploaded). Close the tab, come back, change the copies and download again. **New job** clears it.
+
+Sheet, marks, gap and bleed: ⚙ top right (defaults: 13 × 19 in, L-corner marks, 2 mm bleed, 5 mm between cut lines – kept separately from the sticker settings). Defaults live in `src/printcut/model.ts`.
+
 ## Settings – please confirm these with the printer
 
 All defaults live in one file: **`src/config/defaults.ts`**. They can also be changed in the app (**⚙ Settings** button; saved in that browser).
@@ -169,6 +189,12 @@ src/stickers/lib/matte.ts        background removal maths (plain colour, AI mask
 src/stickers/lib/exportStickers.ts  PDF (Print + CutContour layers, spot colour) and SVG
 src/stickers/workers/            cut lines and background removal run off the main thread
 tests/stickers.test.ts           cut line accuracy, layout, export
+
+src/printcut/model.ts            Print & Cut pieces: exact-size cut shapes, bleed plan, products, defaults
+src/printcut/exportPrintCut.ts   draws pieces (vector PDFs, images, bleed) into the sticker sheet export
+src/printcut/store.ts            keeps the current job in IndexedDB
+src/printcut/PrintCutApp.tsx     the Print & Cut screen (reuses the sticker sheet canvas and settings)
+tests/printcut.test.ts           product matching, shapes, 13 × 19 layout, export
 ```
 
 1 mm = 72 / 25.4 pt = 2.834645… pt. All maths is done in mm and converted once when writing the PDF.

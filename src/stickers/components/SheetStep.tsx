@@ -172,7 +172,7 @@ export default function SheetStep(props: {
 }
 
 /** Sheet preview with zoom, pan and drag-to-move. Drawn with Canvas 2D in sheet millimetres. */
-function SheetCanvas(props: {
+export function SheetCanvas(props: {
   sheet: StickerSheetLayout
   settings: StickerSettings
   visuals: Record<string, StickerVisual>
@@ -180,8 +180,12 @@ function SheetCanvas(props: {
   view: View
   problems: { overlapping: Set<string>; outside: Set<string> }
   onMove: (id: string, x: number, y: number) => void
+  /** Called when a piece is clicked (null = empty space). */
+  onSelect?: (designId: string | null) => void
+  noun?: string
 }) {
   const { sheet, settings, visuals, shapes, view, problems } = props
+  const noun = props.noun ?? 'sticker'
   const W = settings.sheet.widthMm
   const H = settings.sheet.heightMm
   const host = useRef<HTMLDivElement>(null)
@@ -283,7 +287,7 @@ function SheetCanvas(props: {
       ctx.font = `${Math.max(6, Math.min(12, 2.2 * zoom))}px Inter Variable, sans-serif`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText(`Sheet ${sheet.index + 1} · ${settings.sheet.name} · ${sheet.placements.length} stickers`, pan.x + (W / 2) * zoom, pan.y + (H - settings.marginMm / 2) * zoom)
+      ctx.fillText(`Sheet ${sheet.index + 1} · ${settings.sheet.name} · ${sheet.placements.length} ${noun}s`, pan.x + (W / 2) * zoom, pan.y + (H - settings.marginMm / 2) * zoom)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheet, settings, visuals, shapes, view, problems, selected, zoom, pan, vp, dpr])
@@ -320,6 +324,7 @@ function SheetCanvas(props: {
         const sy = e.clientY - r.top
         const id = hit(sx, sy)
         setSelected(id)
+        props.onSelect?.(id ? (sheet.placements.find((q) => q.id === id)?.designId ?? null) : null)
         ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
         if (id) {
           const p = sheet.placements.find((q) => q.id === id)!

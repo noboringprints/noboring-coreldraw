@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { ArrowRight, Lock } from 'lucide-react'
 import { Logo } from './Header'
 
-export type Mode = 'posters' | 'stickers'
+export type Mode = 'posters' | 'stickers' | 'printcut'
 
 /** Little drawing of a poster sheet: two A4s with crop marks. */
 function PosterArt() {
@@ -42,6 +42,32 @@ function StickerArt() {
   )
 }
 
+/** Little drawing of a mixed sheet: a mug wrap and round coasters, each with its cut line. */
+function PrintCutArt() {
+  return (
+    <svg viewBox="0 0 160 120" className="h-full w-full" aria-hidden>
+      <rect x="38" y="6" width="84" height="108" rx="3" fill="#fff" stroke="#e2e8f0" />
+      <path d="M43 11h7M43 11v7M117 11h-7M117 11v7M43 109h7M43 109v-7M117 109h-7M117 109v-7" stroke="#111" strokeWidth="1.6" />
+      <rect x="49" y="17" width="62" height="22" fill="#f4c2c2" />
+      <path d="M49 39c6-9 12-9 17-3s9 3 11 0v3H49z" fill="#f47c68" />
+      <rect x="56" y="23" width="26" height="8" rx="2" fill="#ef4444" />
+      <rect x="49" y="17" width="62" height="22" fill="none" stroke="#ec008c" strokeWidth="1" strokeDasharray="2.5 1.8" />
+      {[
+        [62, 60],
+        [92, 60],
+        [62, 90],
+        [92, 90],
+      ].map(([cx, cy]) => (
+        <g key={`${cx}-${cy}`}>
+          <circle cx={cx} cy={cy} r="12" fill="#f4c2c2" />
+          <rect x={cx - 7} y={cy - 3} width="14" height="6" rx="1.5" fill="#ef4444" />
+          <circle cx={cx} cy={cy} r="12" fill="none" stroke="#ec008c" strokeWidth="1" strokeDasharray="2.5 1.8" />
+        </g>
+      ))}
+    </svg>
+  )
+}
+
 function Choice(props: { title: string; tagline: string; points: string[]; art: ReactNode; last: boolean; onClick: () => void; accent: string }) {
   return (
     <button
@@ -77,12 +103,12 @@ export default function Launcher(props: { last: Mode | null; onPick: (m: Mode) =
           <Logo />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-4xl flex-1 animate-fade-up px-5 py-12">
+      <main className="mx-auto w-full max-w-6xl flex-1 animate-fade-up px-5 py-12">
         <div className="text-center">
           <h1 className="text-3xl font-bold tracking-tight text-balance sm:text-4xl">What are we printing today?</h1>
           <p className="mt-3 text-lg text-slate-500">Pick a job – everything is set up for production automatically.</p>
         </div>
-        <div className="mt-10 grid gap-5 sm:grid-cols-2">
+        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <Choice
             title="Posters"
             tagline="A3 · A4 · A5 on 13×19 or A3 sheets"
@@ -100,6 +126,15 @@ export default function Launcher(props: { last: Mode | null; onPick: (m: Mode) =
             accent="bg-gradient-to-br from-pink-50 to-amber-50"
             last={props.last === 'stickers'}
             onClick={() => props.onPick('stickers')}
+          />
+          <Choice
+            title="Print & Cut"
+            tagline="Any sizes & shapes on one sheet"
+            points={['Coasters, mug wraps, labels – mixed together', 'Exact size, bleed and a cut line on each', 'Remembers your products and your last job']}
+            art={<PrintCutArt />}
+            accent="bg-gradient-to-br from-amber-50 to-rose-50"
+            last={props.last === 'printcut'}
+            onClick={() => props.onPick('printcut')}
           />
         </div>
         <p className="mt-10 flex items-center justify-center gap-2 text-sm text-slate-400">
