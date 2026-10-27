@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PrintSettings } from './config/defaults'
 import { detectBleed, planArtwork, sizeMatches, suggestTrim } from './lib/artwork'
-import { buildItems, checkDesign, type Design, type DesignCheck } from './lib/job'
+import { buildItems, checkDesign, designPages, type Design, type DesignCheck } from './lib/job'
 import { groupKey, layoutJob, type PlacementOverride } from './lib/layout'
 import { edgeTextWarning, textNearEdge } from './lib/textCheck'
 import { type Preset, loadSettings, loadUserPresets, saveSettings, saveUserPresets } from './lib/presets'
@@ -25,7 +25,7 @@ const DownloadStep = lazy(loadDownload)
  */
 function redetect(d: Design, src: SourceFile | undefined, s: PrintSettings): Design {
   if (!src) return d
-  const pages = d.split ? src.pages : [src.pages[d.pageIndex] ?? src.pages[0]]
+  const pages = designPages(d, src)
   const dets = pages.map((p) => detectBleed(p.geometry, d.trimW, d.trimH, s.bleedMm))
   const hasBleed = dets.every((x) => x.hasBleed)
   const fallback = s.bleedMm > 0 ? 'mirror' : 'none'
@@ -61,7 +61,7 @@ export default function App() {
   const sheets = useMemo(() => layoutJob(items, settings, { maxPerSheet, overrides }), [items, settings, maxPerSheet, overrides])
   // text close to the cut line (PDFs only; runs in the background with pdf.js)
   const [edgeText, setEdgeText] = useState<Record<string, string | null>>({})
-  const edgeKey = JSON.stringify(designs.map((d) => [d.id, d.sourceId, d.split, d.pageIndex, d.trimW, d.trimH, d.bleedMode, d.fit]).concat([[settings.bleedMm, settings.safeZoneMm]]))
+  const edgeKey = JSON.stringify(designs.map((d) => [d.id, d.sourceId, d.split, d.pageIndex, d.pages, d.trimW, d.trimH, d.bleedMode, d.fit]).concat([[settings.bleedMm, settings.safeZoneMm]]))
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -70,7 +70,7 @@ export default function App() {
         const src = sources[d.sourceId]
         if (!src || src.kind !== 'pdf') continue
         const found = []
-        for (const p of d.split ? src.pages : [src.pages[d.pageIndex] ?? src.pages[0]]) {
+        for (const p of designPages(d, src)) {
           try {
             const plan = planArtwork(p.geometry, d.trimW, d.trimH, settings.bleedMm, d.bleedMode, d.fit)
             found.push(...textNearEdge(await (await pdfRender()).pdfTextItems(src.bytes, p.index), p, plan, d.trimW, d.trimH, settings.safeZoneMm))
@@ -195,6 +195,7 @@ export default function App() {
         copies: 1,
         split: false,
         pageIndex,
+        pages: undefined,
       }
       return [...ds, extra]
     })
@@ -302,6 +303,7 @@ export default function App() {
             loading={loading > 0}
             errors={errors}
             onFiles={addFiles}
+            onUpdate={updateDesign}
             onRemove={removeDesign}
           />
         )}

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { AlertTriangle, CheckCircle2, Info, Minus, Plus, X } from 'lucide-react'
 import type { SourceFile } from '../lib/sources'
+import { formatPageRange, parsePageRange } from '../lib/job'
 import { expand, round3, type Rect } from '../lib/geometry'
 import { describeSize } from '../lib/artwork'
 
@@ -38,6 +39,106 @@ export function NumberField(props: {
       />
       {props.suffix && <span className="text-xs text-slate-400">{props.suffix}</span>}
     </label>
+  )
+}
+
+/** Up to this many pages, every page also gets a toggle chip. */
+const PAGE_CHIPS_MAX = 40
+
+/**
+ * Picks which pages of a multi-page PDF to print: type a range ("2-4, 6") or click the page chips.
+ * `value` and `onChange` use 0-based page indexes, ascending.
+ */
+export function PageRangeField(props: { count: number; value: number[]; onChange: (pages: number[]) => void; size?: 'sm' | 'md' }) {
+  const { count, value } = props
+  const sm = props.size === 'sm'
+  const shown = formatPageRange(value, count)
+  const [text, setText] = useState(shown)
+  const [editing, setEditing] = useState(false)
+  useEffect(() => {
+    if (!editing) setText(shown)
+  }, [shown, editing])
+  const parsed = parsePageRange(text, count)
+  const error = editing && typeof parsed === 'string' ? parsed : null
+  const preview = editing && typeof parsed !== 'string' ? parsed : value
+
+  const apply = (pages: number[]) => {
+    if (pages.length && (pages.length !== value.length || pages.some((p, i) => p !== value[i]))) props.onChange(pages)
+  }
+  const commit = () => {
+    setEditing(false)
+    if (typeof parsed === 'string') setText(shown)
+    else apply(parsed)
+  }
+  const toggle = (i: number) => {
+    // a click while typing works on what is typed so far
+    const base = preview
+    const on = base.includes(i)
+    setEditing(false)
+    // the last page can't be switched off – something must print
+    if (on && base.length === 1) return setText(shown)
+    apply(on ? base.filter((p) => p !== i) : [...base, i].sort((a, b) => a - b))
+  }
+
+  return (
+    <div className={`flex min-w-0 flex-col ${sm ? 'gap-1.5' : 'gap-2'}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          aria-label="Pages to print"
+          aria-invalid={!!error}
+          className={`field tabular-nums ${sm ? 'w-28 px-2.5 py-1 text-xs' : 'w-40 py-1.5'} ${error ? 'ring-2 ring-red-400 focus:ring-red-500' : ''}`}
+          placeholder="e.g. 2-4, 6"
+          value={text}
+          onFocus={(e) => {
+            setEditing(true)
+            e.target.select()
+          }}
+          onChange={(e) => {
+            setEditing(true)
+            setText(e.target.value)
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+            if (e.key === 'Escape') {
+              setText(shown)
+              setEditing(false)
+              ;(e.target as HTMLInputElement).blur()
+            }
+          }}
+        />
+        <span className={`tabular-nums ${sm ? 'text-[11px]' : 'text-xs'} ${error ? 'text-red-600' : 'text-slate-500'}`} aria-live="polite">
+          {error ?? `${preview.length} of ${count} page${count === 1 ? '' : 's'}`}
+        </span>
+        {!editing && value.length !== count && (
+          <button className={`font-semibold text-brand-700 hover:underline ${sm ? 'text-[11px]' : 'text-xs'}`} onClick={() => apply([...Array(count).keys()])}>
+            All pages
+          </button>
+        )}
+      </div>
+      {count <= PAGE_CHIPS_MAX && (
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Pages">
+          {Array.from({ length: count }, (_, i) => {
+            const on = preview.includes(i)
+            return (
+              <button
+                key={i}
+                aria-pressed={on}
+                title={on ? `Leave out page ${i + 1}` : `Print page ${i + 1}`}
+                // keep focus in the text box while typing so a click doesn't commit a half-typed range first
+                onMouseDown={(e) => editing && e.preventDefault()}
+                onClick={() => toggle(i)}
+                className={`grid place-items-center rounded-md font-semibold tabular-nums transition-colors ${sm ? 'h-6 min-w-6 px-1 text-[11px]' : 'h-7 min-w-7 px-1.5 text-xs'} ${
+                  on ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-slate-100 text-slate-400 line-through decoration-slate-300 hover:bg-slate-200 hover:text-slate-600'
+                }`}
+              >
+                {i + 1}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 

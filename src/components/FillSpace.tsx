@@ -1,7 +1,7 @@
 /** "Fill the empty space" panel: add another file of the same size, or print one more of a panel/design already in the job. */
 import { useRef } from 'react'
 import { Copy, Plus, Upload, X } from 'lucide-react'
-import type { Design } from '../lib/job'
+import { designPages, type Design } from '../lib/job'
 import { groupKey } from '../lib/layout'
 import type { SourceFile } from '../lib/sources'
 import { fmtMm } from './ui'
@@ -85,7 +85,7 @@ export default function FillSpace(props: {
           <div className="flex max-h-56 flex-col gap-2 overflow-y-auto">
             {originals.map((d) => {
               const src = props.sources[d.sourceId]
-              const pages = d.split ? src.pages.map((p) => p.index) : [d.pageIndex]
+              const pages = designPages(d, src).map((p) => p.index)
               return (
                 <div key={d.id} className="flex items-center gap-2.5 rounded-xl bg-slate-50 p-2">
                   {props.thumbs?.[src.id] ? (

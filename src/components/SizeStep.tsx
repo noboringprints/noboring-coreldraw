@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { Bookmark, BookmarkPlus, ChevronDown, FileStack, Plus, RectangleHorizontal, RectangleVertical, Trash2, X, Zap } from 'lucide-react'
 import { TRIM_SIZES, type PrintSettings } from '../config/defaults'
 import type { BleedMode } from '../lib/artwork'
-import type { Design, DesignCheck } from '../lib/job'
+import { designPages, pageSelectionPatch, type Design, type DesignCheck } from '../lib/job'
 import { bestGrid, groupKey, type Sheet } from '../lib/layout'
 import { BUILT_IN_PRESETS, type Preset } from '../lib/presets'
 import type { SourceFile } from '../lib/sources'
 import FillSpace from './FillSpace'
-import { Badge, DESIGN_COLORS, NumberField, Notice, Segmented, SheetDiagram, Stepper, Switch, Thumb, detectedSizeText, fmtMm, useToast } from './ui'
+import { Badge, DESIGN_COLORS, NumberField, Notice, PageRangeField, Segmented, SheetDiagram, Stepper, Thumb, detectedSizeText, fmtMm, useToast } from './ui'
 
 /** Warnings that are just information (the app did something for you), not problems. */
 const isInfo = (w: string) => w.startsWith('Bleed was added automatically')
@@ -210,10 +210,10 @@ function DesignCard(props: {
                 aria-label="Design name"
               />
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span>{detectedSizeText(src, d.split ? 0 : d.pageIndex, settings.bleedMm)}</span>
+                <span>{detectedSizeText(src, d.pageIndex, settings.bleedMm)}</span>
                 {multi && (
                   <Badge tone="neutral" icon={<FileStack size={12} />}>
-                    {src.pages.length} pages
+                    {d.split && d.pages ? `${d.pages.length} of ${src.pages.length}` : !d.split ? `1 of ${src.pages.length}` : src.pages.length} pages
                   </Badge>
                 )}
                 {check?.dpi != null && <Badge tone={check.dpi >= settings.minDpi ? 'good' : 'warn'}>{check.dpi} DPI</Badge>}
@@ -260,19 +260,7 @@ function DesignCard(props: {
 
             {multi && (
               <Row label="Pages">
-                <Switch checked={d.split} onChange={(v) => onUpdate({ split: v })} label={`Split poster – ${src.pages.length} panels`} />
-                {!d.split && (
-                  <span className="flex items-center gap-2 text-sm text-slate-500">
-                    or print page
-                    <select className="field py-1.5" value={d.pageIndex} onChange={(e) => onUpdate({ pageIndex: Number(e.target.value) })}>
-                      {src.pages.map((p) => (
-                        <option key={p.index} value={p.index}>
-                          {p.index + 1}
-                        </option>
-                      ))}
-                    </select>
-                  </span>
-                )}
+                <PageRangeField count={src.pages.length} value={designPages(d, src).map((p) => p.index)} onChange={(pages) => onUpdate(pageSelectionPatch(pages, src.pages.length))} />
               </Row>
             )}
 

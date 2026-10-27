@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { FileStack, Layers, Lock, Plus, Scissors, Sparkles, UploadCloud, X } from 'lucide-react'
 import type { PrintSettings } from '../config/defaults'
-import type { Design, DesignCheck } from '../lib/job'
+import { designPages, pageSelectionPatch, type Design, type DesignCheck } from '../lib/job'
 import type { SourceFile } from '../lib/sources'
-import { Badge, Notice, Thumb, detectedSizeText } from './ui'
+import { Badge, Notice, PageRangeField, Thumb, detectedSizeText } from './ui'
 
 const ACCEPT = '.pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg'
 
@@ -16,6 +16,7 @@ export default function UploadStep(props: {
   loading: boolean
   errors: string[]
   onFiles: (files: File[]) => void
+  onUpdate: (id: string, patch: Partial<Design>) => void
   onRemove: (id: string) => void
 }) {
   const input = useRef<HTMLInputElement>(null)
@@ -154,7 +155,7 @@ export default function UploadStep(props: {
                     <div className="truncate font-semibold" title={src.name}>
                       {d.name}
                     </div>
-                    <div className="mt-0.5 truncate text-xs text-slate-500">{detectedSizeText(src, 0, props.settings.bleedMm)}</div>
+                    <div className="mt-0.5 truncate text-xs text-slate-500">{detectedSizeText(src, d.pageIndex, props.settings.bleedMm)}</div>
                     <div className="mt-2.5 flex flex-wrap gap-1.5">
                       {src.pages.length > 1 && (
                         <Badge tone="neutral" icon={<FileStack size={12} />}>
@@ -163,6 +164,17 @@ export default function UploadStep(props: {
                       )}
                       {c?.hasBleed ? <Badge tone="good">Has bleed</Badge> : <Badge tone="brand">Bleed added for you</Badge>}
                     </div>
+                    {src.pages.length > 1 && (
+                      <div className="mt-3 border-t border-slate-100 pt-2.5">
+                        <div className="label-xs mb-1.5">Pages to print</div>
+                        <PageRangeField
+                          size="sm"
+                          count={src.pages.length}
+                          value={designPages(d, src).map((p) => p.index)}
+                          onChange={(pages) => props.onUpdate(d.id, pageSelectionPatch(pages, src.pages.length))}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               )
