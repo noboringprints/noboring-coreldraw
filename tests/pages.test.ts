@@ -45,7 +45,7 @@ describe('page range', () => {
       ...pageSelectionPatch([1, 2, 3], 5),
     }
     const items = buildItems([design], { pg: src })
-    expect(items.map((i) => i.art.pageIndex)).toEqual([1, 2, 3, 1, 2, 3])
+    expect(items.map((i) => i.art?.pageIndex)).toEqual([1, 2, 3, 1, 2, 3])
     expect(items[0].panel).toEqual({ index: 2, total: 5 })
   })
 })
