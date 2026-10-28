@@ -4,7 +4,7 @@ import { PT_PER_MM } from '../src/config/defaults'
 import { apply } from '../src/lib/geometry'
 import { readSource, type SourceFile } from '../src/lib/sources'
 import { buildPrintCutPdf, buildItemPreviewPdf } from '../src/printcut/exportPrintCut'
-import { DEFAULT_PRINTCUT_SETTINGS, DEFAULT_PRODUCTS, type PrintCutItem, itemShape, matchProduct, newItemFor, planItem } from '../src/printcut/model'
+import { DEFAULT_PRINTCUT_SETTINGS, DEFAULT_PRODUCTS, type PrintCutItem, findContent, itemShape, matchProduct, newItemFor, planItem } from '../src/printcut/model'
 import { layoutProblems, nest } from '../src/stickers/lib/nest'
 import { flatten } from '../src/stickers/lib/paths'
 
@@ -119,5 +119,61 @@ describe('13 × 19 sheet', () => {
     const doc = await PDFDocument.load(await buildItemPreviewPdf(c, sources[c.sourceId], 2))
     const { width } = doc.getPage(0).getSize()
     expect(width / PT_PER_MM).toBeCloseTo(86, 3)
+  })
+})
+
+/** A file of wMm × hMm at 8 px/mm, white, with something drawn by `cover` (mm from top-left). */
+function picture(wMm: number, hMm: number, cover: (x: number, y: number) => boolean) {
+  const k = 8
+  const width = wMm * k
+  const height = hMm * k
+  const data = new Uint8ClampedArray(width * height * 4).fill(255)
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++)
+      if (cover((x + 0.5) / k, (y + 0.5) / k)) data.set([200, 40, 30, 255], (y * width + x) * 4)
+  return { width, height, data }
+}
+
+describe('cut at the design edge', () => {
+  // a round 78 mm design in a 90 × 90 mm file, slightly off-centre
+  const round = picture(90, 90, (x, y) => (x - 44) ** 2 + (y - 46) ** 2 <= 39 * 39)
+
+  it('finds a round design inside empty space', () => {
+    const c = findContent(round, 90, 90)!
+    expect(c.ellipse).toBe(true)
+    expect(c.rect.w).toBeCloseTo(78 - 0.2, 0)
+    expect(c.rect.h).toBeCloseTo(78 - 0.2, 0)
+    expect(c.rect.x).toBeCloseTo(5.1, 0) // 44 − 39, + inset
+    expect(c.rect.y).toBeCloseTo(90 - 46 - 39 + 0.1, 0) // y up from the bottom
+  })
+
+  it('a rectangle with a margin is not round; a design that fills the file is left alone', () => {
+    expect(findContent(picture(100, 60, (x, y) => x > 5 && x < 95 && y > 5 && y < 55), 100, 60)!.ellipse).toBe(false)
+    expect(findContent(picture(50, 50, () => true), 50, 50)).toBeNull()
+  })
+
+  it('new pieces are cut round on the design edge, at the design’s own size', () => {
+    const g = { kind: 'pdf' as const, physicalSize: true, widthMm: 90, heightMm: 90 }
+    const content = findContent(round, 90, 90)
+    const it = newItemFor('x', 'x', 's', 0, g, [], 2, content)
+    expect(it.shape).toBe('circle')
+    expect(it.bleedMode).toBe('grow')
+    expect(it.crop).toEqual(content!.rect)
+    expect(it.widthMm).toBeCloseTo(77.8, 0)
+    // the design part of the file lands exactly on the cut circle's box
+    const p = planItem(it, g, 2)
+    const r = content!.rect
+    const a = apply(p.main.matrix, r.x, r.y)
+    const b = apply(p.main.matrix, r.x + r.w, r.y + r.h)
+    expect(a[0]).toBeCloseTo(0, 6)
+    expect(a[1]).toBeCloseTo(0, 6)
+    expect(b[0]).toBeCloseTo(it.widthMm, 6)
+    expect(b[1]).toBeCloseTo(it.heightMm, 6)
+  })
+
+  it('an 82 mm round design with space around it is recognised as the 82 mm product', () => {
+    const pic = picture(90, 90, (x, y) => (x - 45) ** 2 + (y - 45) ** 2 <= 41.1 * 41.1)
+    const it = newItemFor('x', 'x', 's', 0, { kind: 'pdf', physicalSize: true, widthMm: 90, heightMm: 90 }, DEFAULT_PRODUCTS, 2, findContent(pic, 90, 90))
+    expect(it.product).toBe('Round 82 mm')
   })
 })

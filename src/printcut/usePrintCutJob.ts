@@ -2,12 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { browserRasterizer, openPdf, renderPage, thumbnail } from '../lib/pdfRender'
 import { type SourceFile, newId, readSource } from '../lib/sources'
 import type { StickerSettings } from '../stickers/config'
-import { buildItemPreviewPdf } from './exportPrintCut'
-import { type PrintCutItem, type Product, newItemFor } from './model'
+import { buildItemPreviewPdf, buildSourcePdf } from './exportPrintCut'
+import { type ContentInfo, type PrintCutItem, type Product, findContent, newItemFor } from './model'
 import { loadJob, saveJob } from './store'
 
 const thumbKey = (sourceId: string, page: number) => `${sourceId}:${page}`
 const baseName = (name: string) => name.replace(/\.(pdf|png|jpe?g)$/i, '')
+
+/** Where the design sits in one page of a file (null = it fills the page). Rendered at up to 8 px/mm. */
+async function detectContent(src: SourceFile, pageIndex: number): Promise<ContentInfo | null> {
+  const g = src.pages[pageIndex].geometry
+  try {
+    const [img] = await browserRasterizer.render(await buildSourcePdf(src, pageIndex), Math.min(8, 1600 / Math.max(g.widthMm, g.heightMm)))
+    return findContent(img, g.widthMm, g.heightMm)
+  } catch {
+    return null
+  }
+}
 
 /** Uploaded files, the items made from them, thumbnails, and saving the job in this browser. */
 export function usePrintCutJob(settings: StickerSettings, products: Product[], toast: (msg: string) => void) {
@@ -17,6 +28,8 @@ export function usePrintCutJob(settings: StickerSettings, products: Product[], t
   const [loading, setLoading] = useState(0)
   const [errors, setErrors] = useState<string[]>([])
   const [restored, setRestored] = useState(false)
+  /** Design edge per file page (`sourceId:page`), for the "cut at design edge / file edge" switch. */
+  const [contents, setContents] = useState<Record<string, ContentInfo | null>>({})
   // new uploads use the latest settings and products without re-creating addFiles
   const latest = useRef({ settings, products })
   useEffect(() => {
@@ -49,6 +62,11 @@ export function usePrintCutJob(settings: StickerSettings, products: Product[], t
         setSources(srcs)
         setItems(job.items.filter((it) => srcs[it.sourceId]))
         Object.values(srcs).forEach((s) => void makeThumbs(s))
+        for (const src of Object.values(srcs))
+          for (const p of src.pages) {
+            const c = await detectContent(src, p.index)
+            setContents((m) => ({ ...m, [thumbKey(src.id, p.index)]: c }))
+          }
         toast(`Your last job is back (${new Date(job.savedAt).toLocaleString()})`)
       }
       setRestored(true)
@@ -77,8 +95,20 @@ export function usePrintCutJob(settings: StickerSettings, products: Product[], t
           const src = await readSource(f.name, new Uint8Array(await f.arrayBuffer()))
           const { settings: s, products: prods } = latest.current
           const many = src.pages.length > 1
+          const found: Record<string, ContentInfo | null> = {}
+          for (const p of src.pages) found[thumbKey(src.id, p.index)] = await detectContent(src, p.index)
+          setContents((c) => ({ ...c, ...found }))
           const made = src.pages.map((p) =>
-            newItemFor(newId('it'), many ? `${baseName(src.name)} · p${p.index + 1}` : baseName(src.name), src.id, p.index, p.geometry, prods, s.bleedMm),
+            newItemFor(
+              newId('it'),
+              many ? `${baseName(src.name)} · p${p.index + 1}` : baseName(src.name),
+              src.id,
+              p.index,
+              p.geometry,
+              prods,
+              s.bleedMm,
+              found[thumbKey(src.id, p.index)],
+            ),
           )
           setSources((m) => ({ ...m, [src.id]: src }))
           setItems((list) => [
@@ -122,15 +152,16 @@ export function usePrintCutJob(settings: StickerSettings, products: Product[], t
   }, [])
 
   const thumbOf = (it: PrintCutItem) => thumbs[thumbKey(it.sourceId, it.pageIndex)]
+  const contentOf = (it: PrintCutItem) => contents[thumbKey(it.sourceId, it.pageIndex)] ?? null
 
-  return { sources, items, setItems, thumbOf, loading, errors, restored, addFiles, update, remove, duplicate, clear }
+  return { sources, items, setItems, thumbOf, contentOf, loading, errors, restored, addFiles, update, remove, duplicate, clear }
 }
 
 export type PrintCutJob = ReturnType<typeof usePrintCutJob>
 
 /* ------------------------------------------------------------------ previews */
 
-const previewKey = (it: PrintCutItem, bleedMm: number) => [it.sourceId, it.pageIndex, it.widthMm, it.heightMm, it.shape, it.cornerMm, it.bleedMode, it.fit, bleedMm].join('|')
+const previewKey = (it: PrintCutItem, bleedMm: number) => [it.sourceId, it.pageIndex, it.widthMm, it.heightMm, it.shape, it.cornerMm, it.bleedMode, it.fit, bleedMm, JSON.stringify(it.crop ?? null)].join('|')
 
 /**
  * Each item's look on the sheet: the item rendered on its own from the same PDF code as the download

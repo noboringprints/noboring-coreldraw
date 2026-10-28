@@ -367,6 +367,7 @@ function ItemCard(props: {
   if (!g) return null
 
   const plan = planItem(it, g, settings.bleedMm)
+  const content = job.contentOf(it)
   const dpi = itemDpi(g, plan)
   const ratio = it.heightMm / it.widthMm
   const product = matchProduct({ kind: 'pdf', physicalSize: true, widthMm: it.widthMm, heightMm: it.heightMm }, props.products, 0)?.product
@@ -430,6 +431,33 @@ function ItemCard(props: {
             </button>
           </div>
 
+          {content && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="w-11 text-xs font-semibold text-slate-500">Cut at</span>
+              <Segmented
+                size="sm"
+                aria-label="Cut at"
+                value={it.crop ? 'design' : 'file'}
+                onChange={(v) => {
+                  // keep the current print scale, swap which part of the file is the piece
+                  const k = it.widthMm / (it.crop?.w ?? g.widthMm)
+                  if (v === 'file') return set({ crop: undefined, widthMm: round3(g.widthMm * k), heightMm: round3(g.heightMm * k) })
+                  const shape = content.ellipse && it.shape === 'rect' ? 'circle' : it.shape
+                  set({
+                    crop: content.rect,
+                    widthMm: round3(content.rect.w * k),
+                    heightMm: round3(content.rect.h * k),
+                    shape,
+                    ...(it.bleedMode === 'included' || (shape !== 'rect' && it.bleedMode === 'mirror') ? { bleedMode: shape === 'rect' ? 'mirror' : 'grow' } : {}),
+                  })
+                }}
+                options={[
+                  { value: 'design', label: 'Design edge', hint: 'Cut around the artwork itself, skipping the empty space in the file' },
+                  { value: 'file', label: 'File edge', hint: 'Cut around the whole file / page' },
+                ]}
+              />
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="w-11 text-xs font-semibold text-slate-500">Cut</span>
             <Segmented size="sm" aria-label="Cut shape" value={it.shape} onChange={(shape) => set({ shape, ...(shape === 'circle' && it.bleedMode === 'mirror' ? { bleedMode: 'grow' as const } : {}) })} options={SHAPES} />

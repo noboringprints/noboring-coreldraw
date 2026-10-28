@@ -117,6 +117,7 @@ All defaults are in **`src/stickers/config.ts`** and can be changed in the app (
 One screen: designs on the left, the sheet on the right, download at the bottom.
 
 1. **Drop PDF, PNG or JPG files** (several at once; every page of a PDF becomes its own piece). Each piece keeps its **exact size from the file** – an 82 mm file prints at 82 mm, a 250 × 84.06 mm file at 250 × 84.06 mm.
+   **Cut on the design's own edge:** when the design doesn't fill its file (e.g. a round coaster on a square page, or a PNG with transparent space around it), the empty space is found automatically and the cut goes on the design's edge (0.1 mm inside it), not the page edge. Round designs get a circle cut. Switch a piece back with **Cut at → File edge**.
 2. **Remembered sizes** – a file whose size matches a remembered product (± 1 mm, with or without bleed in the file) gets that product's name and cut shape automatically. Two come built in: *Round 82 mm* (circle) and *Mug wrap 250 × 84* (rectangle). Click a piece → **Remember size** to add your own; the list is at the bottom of the left panel. Images without a stored DPI are matched by their proportions.
 3. Click a piece to change it:
    - **Size** (proportions locked by default – the link button frees them),

@@ -40,6 +40,11 @@ export interface PrintCutItem {
   fit: FitMode
   copies: number
   rotation: 'auto' | 0 | 90
+  /**
+   * Cut at the design's own edge: the part of the file (source mm, y up) that holds the design,
+   * when the file has empty space around it. Unset = the whole file is the design.
+   */
+  crop?: Rect
 }
 
 /** A remembered product: files of this size get this name and cut shape automatically. */
@@ -112,9 +117,13 @@ export interface ItemPlan {
   warnings: string[]
 }
 
+/** The file as the item sees it: with a crop, only the design part counts (exactly like a PDF trim box). */
+export const itemGeometry = (it: Pick<PrintCutItem, 'crop'>, g: SourceGeometry): SourceGeometry => (it.crop ? { ...g, trimBox: it.crop } : g)
+
 /** Maps source → local trim mm for every piece of the item's artwork, with the chosen bleed. */
-export function planItem(it: PrintCutItem, g: SourceGeometry, bleedMm: number): ItemPlan {
+export function planItem(it: PrintCutItem, file: SourceGeometry, bleedMm: number): ItemPlan {
   const { widthMm: w, heightMm: h } = it
+  const g = itemGeometry(it, file)
   if (it.bleedMode === 'grow') {
     const plan = planArtwork(g, w, h, 0, 'none', it.fit)
     const under: ArtPiece[] = []
@@ -129,7 +138,8 @@ export function planItem(it: PrintCutItem, g: SourceGeometry, bleedMm: number): 
     if (bleedMm > 0) warnings.push('Bleed is made from a slightly enlarged copy of the design under it (outside the cut line only).')
     return { main: plan.main, under, clipMainToCut: bleedMm > 0, rasterStrips: null, plan, warnings }
   }
-  const plan = planArtwork(g, w, h, bleedMm, it.bleedMode, it.fit)
+  // the empty space around a cropped design is not bleed
+  const plan = planArtwork(g, w, h, bleedMm, it.crop && it.bleedMode === 'included' ? 'mirror' : it.bleedMode, it.fit)
   const auto = (it.bleedMode === 'mirror' || it.bleedMode === 'stretch') && bleedMm > 0
   const warnings = [...plan.warnings]
   if (auto && it.shape === 'circle')
@@ -147,7 +157,78 @@ export function planItem(it: PrintCutItem, g: SourceGeometry, bleedMm: number): 
 /** Print resolution of an image item (lower of the two directions), or null for PDFs. */
 export function itemDpi(g: SourceGeometry, p: ItemPlan): number | null {
   if (g.kind !== 'image' || !g.pxW || !g.pxH) return null
+  // pixels per source mm are the same everywhere in the file, cropped or not
   return Math.round(Math.min(g.pxW / ((g.widthMm * p.plan.scaleX) / MM_PER_INCH), g.pxH / ((g.heightMm * p.plan.scaleY) / MM_PER_INCH)))
+}
+
+/* ------------------------------------------------------------------ the design's own edge */
+
+/** Where the design sits inside its file, when there is empty space around it. */
+export interface ContentInfo {
+  /** Source mm, y up (like a PDF trim box). */
+  rect: Rect
+  /** The design is round / oval (its bounding box corners are empty). */
+  ellipse: boolean
+}
+
+/** Margins smaller than this are not worth cropping. */
+export const CONTENT_MIN_MARGIN_MM = 0.5
+/** The cut goes this far inside the found edge, so no sliver of paper shows at the cut. */
+export const CONTENT_INSET_MM = 0.1
+
+/**
+ * Finds the design in a picture of the whole file (rendered on white): everything that isn't white or
+ * transparent. Returns null when the design already fills the file.
+ */
+export function findContent(img: { width: number; height: number; data: Uint8Array | Uint8ClampedArray }, widthMm: number, heightMm: number): ContentInfo | null {
+  const { width: W, height: H, data } = img
+  // ink = noticeably different from white (pale creams and pinks count, anti-aliasing haze doesn't)
+  const ink = (x: number, y: number) => {
+    const i = (y * W + x) * 4
+    return data[i + 3] > 32 && 765 - data[i] - data[i + 1] - data[i + 2] > 24
+  }
+  let x0 = W
+  let x1 = -1
+  let y0 = H
+  let y1 = -1
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      if (ink(x, y)) {
+        if (x < x0) x0 = x
+        if (x > x1) x1 = x
+        if (y < y0) y0 = y
+        y1 = y
+      }
+  if (x1 < 0) return null
+  const kx = W / widthMm // px per mm
+  const ky = H / heightMm
+  const margin = Math.max(x0 / kx, (W - 1 - x1) / kx, y0 / ky, (H - 1 - y1) / ky)
+  if (margin < CONTENT_MIN_MARGIN_MM) return null
+
+  // round? – almost nothing in the corners outside the ellipse that fits the box
+  const cx = (x0 + x1 + 1) / 2
+  const cy = (y0 + y1 + 1) / 2
+  const rx = (x1 + 1 - x0) / 2
+  const ry = (y1 + 1 - y0) / 2
+  let outside = 0
+  let filled = 0
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const d = ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2
+      if (d <= 1.06) continue
+      outside++
+      if (ink(x, y)) filled++
+    }
+  const ellipse = outside > 20 && filled / outside < 0.03
+
+  const t = CONTENT_INSET_MM
+  const rect: Rect = {
+    x: round3(x0 / kx + t),
+    y: round3((H - 1 - y1) / ky + t),
+    w: round3((x1 + 1 - x0) / kx - 2 * t),
+    h: round3((y1 + 1 - y0) / ky - 2 * t),
+  }
+  return { rect, ellipse }
 }
 
 /* ------------------------------------------------------------------ new items */
@@ -159,8 +240,8 @@ const sameSize = (w: number, h: number, W: number, H: number, tol: number): 'sam
 /** Finds the product a file size belongs to – as is, or with bleed already in the file. */
 export function matchProduct(g: SourceGeometry, products: Product[], bleedMm: number): { product: Product; w: number; h: number } | null {
   const sizes: [number, number][] = []
-  if (g.trimBox) sizes.push([g.trimBox.w, g.trimBox.h])
-  if (g.physicalSize !== false) {
+  if (g.trimBox && g.physicalSize !== false) sizes.push([g.trimBox.w, g.trimBox.h])
+  if (g.physicalSize !== false && !g.trimBox) {
     sizes.push([g.widthMm, g.heightMm])
     if (bleedMm > 0) sizes.push([g.widthMm - 2 * bleedMm, g.heightMm - 2 * bleedMm])
   }
@@ -172,7 +253,7 @@ export function matchProduct(g: SourceGeometry, products: Product[], bleedMm: nu
     }
   if (g.physicalSize === false) {
     // an image with no real size: its proportions (within 1 %) say which product it is
-    const a = g.widthMm / g.heightMm
+    const a = g.trimBox ? g.trimBox.w / g.trimBox.h : g.widthMm / g.heightMm
     for (const product of products) {
       const pa = product.widthMm / product.heightMm
       if (Math.abs(a / pa - 1) <= 0.01) return { product, w: product.widthMm, h: product.heightMm }
@@ -191,15 +272,18 @@ export function newItemFor(
   g: SourceGeometry,
   products: Product[],
   bleedMm: number,
+  content?: ContentInfo | null,
 ): PrintCutItem & { product?: string } {
+  const crop = content && !g.trimBox ? content.rect : undefined
+  g = itemGeometry({ crop }, g)
   const match = matchProduct(g, products, bleedMm)
   let w: number
   let h: number
   if (match) [w, h] = [match.w, match.h]
   else if (g.trimBox) [w, h] = [round3(g.trimBox.w), round3(g.trimBox.h)]
   else [w, h] = [round3(g.widthMm), round3(g.heightMm)]
-  const shape = match?.product.shape ?? 'rect'
-  let bleedMode: ItemBleed = detectBleed(g, w, h, bleedMm).mode
+  const shape = match?.product.shape ?? (content?.ellipse ? 'circle' : 'rect')
+  let bleedMode: ItemBleed = crop ? 'mirror' : detectBleed(g, w, h, bleedMm).mode
   if (bleedMode !== 'included' && bleedMm > 0 && shape !== 'rect') bleedMode = 'grow'
   return {
     id,
@@ -214,6 +298,7 @@ export function newItemFor(
     fit: 'fit',
     copies: 1,
     rotation: 'auto',
+    ...(crop ? { crop } : {}),
     product: match?.product.name,
   }
 }
@@ -222,7 +307,7 @@ export function newItemFor(
 export function bleedOptions(it: PrintCutItem, g: SourceGeometry, bleedMm: number): ItemBleed[] {
   if (bleedMm <= 0) return ['none']
   const out: ItemBleed[] = []
-  if (detectBleed(g, it.widthMm, it.heightMm, bleedMm).hasBleed) out.push('included')
+  if (!it.crop && detectBleed(g, it.widthMm, it.heightMm, bleedMm).hasBleed) out.push('included')
   out.push('grow', 'mirror', 'stretch', 'none')
   return out
 }

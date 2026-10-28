@@ -81,3 +81,13 @@ export async function buildItemPreviewPdf(it: PrintCutItem, src: SourceFile, ble
   page.pushOperators(popGraphicsState())
   return doc.save()
 }
+
+/** The whole file page at its own size, on white – rendered to find where the design sits in it. */
+export async function buildSourcePdf(src: SourceFile, pageIndex: number): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const g = src.pages[pageIndex].geometry
+  const page = doc.addPage([g.widthMm * PT_PER_MM, g.heightMm * PT_PER_MM])
+  const d = await embedderFor(doc).get(src, pageIndex)
+  drawPiece(page, scale(PT_PER_MM), { clip: { x: 0, y: 0, w: g.widthMm, h: g.heightMm }, matrix: IDENTITY }, d)
+  return doc.save()
+}
