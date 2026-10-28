@@ -61,7 +61,8 @@ export interface ItemBorder {
   color: string
 }
 
-export const DEFAULT_BORDER: ItemBorder = { style: 'white', mm: 3, color: '#ffffff' }
+/** Cut right on the design edge; a border is opt-in (white / colour, `mm` wide). */
+export const DEFAULT_BORDER: ItemBorder = { style: 'none', mm: 3, color: '#ffffff' }
 /** Notches and gaps narrower than about twice this are filled, so the blade makes one smooth pass. */
 export const CONTOUR_SMOOTH_MM = 2
 
@@ -128,7 +129,8 @@ export function itemShape(
 
 export const contourParams = (it: Pick<PrintCutItem, 'border'>): CutParams => {
   const b = it.border ?? DEFAULT_BORDER
-  return { shape: 'contour', border: b.style, borderMm: b.mm, borderColor: b.color, cornerMm: 0, smoothMm: CONTOUR_SMOOTH_MM }
+  // no border = follow the edge exactly, notches included (smoothing would fill them in)
+  return { shape: 'contour', border: b.style, borderMm: b.mm, borderColor: b.color, cornerMm: 0, smoothMm: b.style === 'none' ? 0 : CONTOUR_SMOOTH_MM }
 }
 
 /** A traced contour cut, in the item's local mm (the design's box is [0, w] × [0, h]). */

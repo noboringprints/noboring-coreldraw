@@ -246,6 +246,29 @@ describe('contour cut', () => {
     expect(pts.every(([x, y]) => Math.hypot(x - 30, y) <= 33 + 0.3)).toBe(true)
   })
 
+  it('with no border the cut runs on the design edge itself (no gap, notches kept)', () => {
+    const none = { ...item, border: { style: 'none' as const, mm: 3, color: '#fff' } }
+    const p = contourParams(none)
+    expect(p.smoothMm).toBe(0)
+    // the tracing pad depends on the border, so draw the picture for this item
+    const pad = contourPadMm(none, s.bleedMm)
+    const w2 = Math.round((60 + 2 * pad) * k)
+    const h2 = Math.round((40 + 2 * pad) * k)
+    const d2 = new Uint8ClampedArray(w2 * h2 * 4).fill(255)
+    for (let y = 0; y < h2; y++)
+      for (let x = 0; x < w2; x++) {
+        const mx = (x + 0.5) / k - pad
+        const my = 40 + pad - (y + 0.5) / k
+        if (my >= 0 && Math.hypot(mx - 30, my) <= 30 && Math.hypot(mx - 30, my - 15) > 5) d2.set([200, 40, 30, 255], (y * w2 + x) * 4)
+      }
+    const raster = contourRaster({ width: w2, height: h2, data: d2 }, none, s.bleedMm)
+    const geo = computeCut(raster, cutFrame(w2 / k, h2 / k, p, s.bleedMm), p, s.bleedMm)
+    expect(geo.bounds.x).toBeCloseTo(0, 0)
+    expect(geo.bounds.w).toBeCloseTo(60, 0)
+    expect(geo.bounds.h).toBeCloseTo(30, 0)
+    for (const [x, y] of flatten(geo.cut[0])) expect(Math.abs(Math.hypot(x - 30, y) - 30) < 0.3 || Math.abs(y) < 0.3).toBe(true)
+  })
+
   it('exports the traced cut with a printed colour border', async () => {
     const p = contourParams(item)
     const geo = computeCut(raster, cutFrame(W / k, H / k, p, s.bleedMm), p, s.bleedMm)
