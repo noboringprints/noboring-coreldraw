@@ -90,6 +90,7 @@ export default function StickerSettingsDialog(props: {
           value={m}
           onChange={(v) => setMarks({ style: v as MarkStyle })}
           options={[
+            { value: 'dots', label: 'Dots', hint: '4 black dots in the corners – die-cut / camera cutters' },
             { value: 'l-corners', label: 'L corners', hint: 'Graphtec ARMS type 1 style and most cutters' },
             { value: 'squares', label: 'Squares', hint: 'Filled squares in the corners' },
             { value: 'silhouette', label: 'Silhouette', hint: 'Square top-left + L corners' },
@@ -105,6 +106,11 @@ export default function StickerSettingsDialog(props: {
               <NumberField value={s.marks.thicknessMm} min={0.1} max={3} onChange={(n) => setMarks({ thicknessMm: n })} suffix="mm" />
             </Row>
           </>
+        )}
+        {m === 'dots' && (
+          <Row label="Dot size" hint={`Diameter. The dots' outer edge is ${fmtMm(s.marginMm)} mm from the sheet edge (Margin above).`}>
+            <NumberField value={s.marks.sizeMm} min={2} max={20} onChange={(n) => setMarks({ sizeMm: n })} suffix="mm" />
+          </Row>
         )}
         {(m === 'squares' || m === 'silhouette') && (
           <Row label="Square size">

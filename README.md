@@ -106,7 +106,7 @@ All defaults are in **`src/stickers/config.ts`** and can be changed in the app (
 | Setting | Default | What to check |
 |---|---|---|
 | Sheet | A4 | Your sticker paper size |
-| Registration marks | L-shaped corners, 20 mm arms, 0.5 mm thick, 10 mm from the edge | The mark type your cutter reads (Graphtec ARMS type, Silhouette, Summa OPOS…). Also *Squares*, *Silhouette* style, or *None* for die / laser cutting |
+| Registration marks | **4 black dots**, 5 mm across, outer edge 10 mm from the sheet edge (the die-cut machine starts cutting from them) | The mark type your cutter reads. Also *L corners* (Graphtec ARMS type, 20 mm arms, 0.5 mm thick), *Squares*, *Silhouette* style, or *None* for die / laser cutting |
 | Clearance | 5 mm between marks and stickers | Your cutter's sensor needs |
 | Gap between stickers | 3 mm (cut line to cut line) | Enough room to weed |
 | Bleed | 1.5 mm past the cut line | Your cutter's accuracy (at most half the gap) |
@@ -129,7 +129,7 @@ One screen: designs on the left, the sheet on the right, download at the bottom.
 
 The **job is saved in this browser** automatically (files and settings, never uploaded). Close the tab, come back, change the copies and download again. **New job** clears it.
 
-Sheet, marks, gap and bleed: ⚙ top right (defaults: 13 × 19 in, L-corner marks, 2 mm bleed, 5 mm between cut lines – kept separately from the sticker settings). Defaults live in `src/printcut/model.ts`.
+Sheet, marks, gap and bleed: ⚙ top right (defaults: 13 × 19 in, 4 corner dots 10 mm in, 2 mm bleed, 5 mm between cut lines – kept separately from the sticker settings). Defaults live in `src/printcut/model.ts`.
 
 ## Settings – please confirm these with the printer
 

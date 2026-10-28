@@ -10,7 +10,7 @@
  */
 import { MM_PER_INCH } from '../config/defaults'
 
-export type MarkStyle = 'l-corners' | 'squares' | 'silhouette' | 'none'
+export type MarkStyle = 'dots' | 'l-corners' | 'squares' | 'silhouette' | 'none'
 export type Units = 'in' | 'mm'
 
 export interface StickerSheet {
@@ -25,7 +25,7 @@ export interface StickerSettings {
   marginMm: number
   marks: {
     style: MarkStyle
-    /** Side of a square mark. */
+    /** Side of a square mark, or diameter of a dot. */
     sizeMm: number
     /** Length of each arm of an L-shaped corner mark. */
     lengthMm: number
@@ -61,7 +61,7 @@ export const STICKER_SHEETS: StickerSheet[] = [
 export const DEFAULT_STICKER_SETTINGS: StickerSettings = {
   sheet: STICKER_SHEETS[0],
   marginMm: 10,
-  marks: { style: 'l-corners', sizeMm: 5, lengthMm: 20, thicknessMm: 0.5, clearanceMm: 5 },
+  marks: { style: 'dots', sizeMm: 5, lengthMm: 20, thicknessMm: 0.5, clearanceMm: 5 },
   gapMm: 3,
   bleedMm: 1.5,
   cut: { spotName: 'CutContour', displayColor: '#ec008c', lineWidthPt: 0.25 },

@@ -43,10 +43,10 @@ import { type Matrix, type Rect, apply, multiply, scale } from '../../lib/geomet
 import { cm } from '../../lib/pdfDraw'
 import type { BorderStyle, StickerSettings } from '../config'
 import { type StickerSheetLayout, placementMatrix } from './nest'
-import { markRects } from './marks'
-import { type BezierPath, mapPath, svgPathData } from './paths'
+import { markDots, markRects } from './marks'
+import { type BezierPath, ellipsePath, mapPath, svgPathData } from './paths'
 
-export { markRects }
+export { markDots, markRects }
 
 /** Everything the export needs to know about one sticker design. */
 export interface ExportDesign {
@@ -202,7 +202,8 @@ export async function buildStickerPdf(
     // ---------------- registration marks + label (printed; the cutter's sensor reads the marks)
     page.pushOperators(bdc(withPrint ? 'OCPrint' : 'OCCut'), pushGraphicsState(), setFillingCmykColor(0, 0, 0, 1))
     for (const r of markRects(s)) page.pushOperators(rectangle(r.x * PT_PER_MM, r.y * PT_PER_MM, r.w * PT_PER_MM, r.h * PT_PER_MM))
-    if (markRects(s).length) page.pushOperators(fill())
+    page.pushOperators(...pathOps(markDots(s).map((d) => ellipsePath(d.cx, d.cy, d.r, d.r)), toPt))
+    if (markRects(s).length || markDots(s).length) page.pushOperators(fill())
     page.pushOperators(popGraphicsState(), emc())
     if (s.label && s.marginMm >= 4) {
       const size = 6
@@ -254,7 +255,10 @@ export function buildCutSvg(sheet: StickerSheetLayout, designs: Record<string, P
     const M = placementMatrix(pl, d.bounds, s)
     for (const p of d.cut) paths.push(`<path d="${svgPathData(mapPath(p, (x, y) => apply(M, x, y)), (x, y) => [x, H - y])}"/>`)
   }
-  const marks = markRects(s).map((m) => `<rect x="${r(m.x)}" y="${r(H - m.y - m.h)}" width="${r(m.w)}" height="${r(m.h)}"/>`)
+  const marks = [
+    ...markRects(s).map((m) => `<rect x="${r(m.x)}" y="${r(H - m.y - m.h)}" width="${r(m.w)}" height="${r(m.h)}"/>`),
+    ...markDots(s).map((d) => `<circle cx="${r(d.cx)}" cy="${r(H - d.cy)}" r="${r(d.r)}"/>`),
+  ]
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
     `<svg xmlns="http://www.w3.org/2000/svg" width="${r(W)}mm" height="${r(H)}mm" viewBox="0 0 ${r(W)} ${r(H)}">`,

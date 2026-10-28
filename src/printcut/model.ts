@@ -62,11 +62,11 @@ export const DEFAULT_PRODUCTS: Product[] = [
   { id: 'p-mug-wrap', name: 'Mug wrap 250 × 84', widthMm: 250, heightMm: 84, shape: 'rect', cornerMm: 0 },
 ]
 
-/** Sheet & cutter defaults: 13 × 19 with L-corner registration marks, 2 mm bleed, 5 mm between cut lines. */
+/** Sheet & cutter defaults: 13 × 19 with 4 corner dot marks 10 mm in, 2 mm bleed, 5 mm between cut lines. */
 export const DEFAULT_PRINTCUT_SETTINGS: StickerSettings = {
   sheet: STICKER_SHEETS.find((s) => s.name.startsWith('13'))!,
   marginMm: 10,
-  marks: { style: 'l-corners', sizeMm: 5, lengthMm: 20, thicknessMm: 0.5, clearanceMm: 5 },
+  marks: { style: 'dots', sizeMm: 5, lengthMm: 20, thicknessMm: 0.5, clearanceMm: 5 },
   gapMm: 5,
   bleedMm: 2,
   cut: { spotName: 'CutContour', displayColor: '#ec008c', lineWidthPt: 0.25 },

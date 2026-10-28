@@ -6,7 +6,7 @@ import type { CSSProperties } from 'react'
 import type { Rect } from '../lib/geometry'
 import type { BorderStyle, StickerSettings } from './config'
 import type { BezierPath } from './lib/paths'
-import { markRects } from './lib/marks'
+import { markDots, markRects } from './lib/marks'
 
 export interface StickerVisual {
   cut: BezierPath[]
@@ -76,6 +76,11 @@ export function drawCut(ctx: CanvasRenderingContext2D, v: StickerVisual, color: 
 export function drawMarks(ctx: CanvasRenderingContext2D, s: StickerSettings) {
   ctx.fillStyle = '#111'
   for (const r of markRects(s)) ctx.fillRect(r.x, r.y, r.w, r.h)
+  for (const d of markDots(s)) {
+    ctx.beginPath()
+    ctx.arc(d.cx, d.cy, d.r, 0, 2 * Math.PI)
+    ctx.fill()
+  }
 }
 
 /** Checkerboard pattern that shows transparency. */

@@ -183,7 +183,9 @@ const rectDesign = (id: string, w: number, h: number, copies: number): NestDesig
 })
 
 describe('sticker sheet layout', () => {
+  // L corners: the usable area is 179 × 266 mm on A4 (the numbers below assume it)
   const s = cloneStickerSettings(DEFAULT_STICKER_SETTINGS)
+  s.marks.style = 'l-corners'
   const lookup = (ds: NestDesign[]) => Object.fromEntries(ds.map((d) => [d.id, d]))
 
   it('rectangles: plain grid with the gap between cut lines, nothing outside the usable area', () => {
@@ -295,7 +297,7 @@ describe('sticker sheet layout', () => {
 import { PDFArray, PDFDocument as PdfDoc, PDFRawStream, decodePDFRawStream } from 'pdf-lib'
 import { createCanvas } from '@napi-rs/canvas'
 import { PT_PER_MM } from '../src/config/defaults'
-import { buildCutSvg, buildStickerPdf, markRects, type ExportDesign } from '../src/stickers/lib/exportStickers'
+import { buildCutSvg, buildStickerPdf, markDots, markRects, type ExportDesign } from '../src/stickers/lib/exportStickers'
 
 function pngOf(w: number, h: number): Uint8Array {
   const c = createCanvas(w, h)
@@ -359,8 +361,35 @@ describe('sticker export', () => {
     expect(text).toMatch(/\/CSCut CS/)
   })
 
+  it('dot marks: 4 black dots, outer edge exactly the margin (10 mm) from both sheet edges', async () => {
+    expect(s.marks.style).toBe('dots')
+    expect(markRects(s)).toHaveLength(0)
+    const dots = markDots(s)
+    expect(dots).toHaveLength(4)
+    for (const d of dots) {
+      expect(d.r).toBeCloseTo(s.marks.sizeMm / 2, 9)
+      expect(Math.min(d.cx - d.r, 210 - d.cx - d.r)).toBeCloseTo(10, 9)
+      expect(Math.min(d.cy - d.r, 297 - d.cy - d.r)).toBeCloseTo(10, 9)
+    }
+    // stickers keep clear of the dots
+    for (const p of layout.sheets[0].placements) {
+      const r = placementRect(p, design.bounds, s)
+      for (const d of dots) {
+        const nx = Math.max(r.x, Math.min(d.cx, r.x + r.w))
+        const ny = Math.max(r.y, Math.min(d.cy, r.y + r.h))
+        expect(Math.hypot(nx - d.cx, ny - d.cy)).toBeGreaterThanOrEqual(d.r + s.marks.clearanceMm - 1e-6)
+      }
+    }
+    // printed in 100 % K in the PDF, circles in the SVG
+    const { text } = await contentOf(await buildStickerPdf(layout.sheets, { c: design }, s, { mode: 'print-cut' }))
+    expect(text).toMatch(/0 0 0 1 k/)
+    const svg = buildCutSvg(layout.sheets[0], { c: design }, s)
+    expect(svg.match(/<circle /g)).toHaveLength(4)
+    expect(svg).toContain(`<circle cx="12.5" cy="12.5" r="2.5"/>`)
+  })
+
   it('registration marks sit in the corners, inside the margin rule', () => {
-    const marks = markRects(s)
+    const marks = markRects({ ...s, marks: { ...s.marks, style: 'l-corners' } })
     expect(marks).toHaveLength(8) // 4 L-shapes
     for (const m of marks) {
       expect(m.x).toBeGreaterThanOrEqual(s.marginMm - 1e-9)

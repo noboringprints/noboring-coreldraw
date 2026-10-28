@@ -5,7 +5,7 @@ import type { StickerSettings } from '../config'
 /** Filled rectangles (mm, y up) that make up the registration marks. */
 export function markRects(s: StickerSettings): Rect[] {
   const { style, sizeMm: S, lengthMm: L, thicknessMm: t } = s.marks
-  if (style === 'none') return []
+  if (style === 'none' || style === 'dots') return []
   const m = s.marginMm
   const W = s.sheet.widthMm
   const H = s.sheet.heightMm
@@ -21,4 +21,22 @@ export function markRects(s: StickerSettings): Rect[] {
   const tr = ell(W - m, H - m, -1, -1)
   if (style === 'silhouette') return [square(m, H - m - S), ...bl, ...br, ...tr]
   return [...bl, ...br, ...tr, ...ell(m, H - m, 1, -1)]
+}
+
+/**
+ * Round dot marks (mm, y up): one filled black circle in each corner, its outer edge `marginMm`
+ * from both sheet edges. Die-cut / flatbed cutters find the dots with their camera and start cutting from them.
+ */
+export function markDots(s: StickerSettings): { cx: number; cy: number; r: number }[] {
+  if (s.marks.style !== 'dots') return []
+  const r = s.marks.sizeMm / 2
+  const lo = s.marginMm + r
+  const right = s.sheet.widthMm - lo
+  const top = s.sheet.heightMm - lo
+  return [
+    { cx: lo, cy: lo, r },
+    { cx: right, cy: lo, r },
+    { cx: lo, cy: top, r },
+    { cx: right, cy: top, r },
+  ]
 }
