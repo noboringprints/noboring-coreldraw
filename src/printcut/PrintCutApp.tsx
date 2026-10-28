@@ -17,6 +17,7 @@ import {
   RectangleHorizontal,
   RotateCw,
   Scissors,
+  Shapes,
   SlidersHorizontal,
   Square,
   Trash2,
@@ -27,7 +28,7 @@ import { Logo } from '../components/Header'
 import { Badge, Notice, NumberField, Segmented, Stepper, ToastHost, useToast } from '../components/ui'
 import { browserRasterizer } from '../lib/pdfRender'
 import { round3 } from '../lib/geometry'
-import type { StickerSettings } from '../stickers/config'
+import { BORDER_SWATCHES, type BorderStyle, type StickerSettings } from '../stickers/config'
 import { buildCutSvg } from '../stickers/lib/exportStickers'
 import { type NestDesign, type StickerSheetLayout, layoutProblems, nest, roomOnLastSheet } from '../stickers/lib/nest'
 import type { ExportMode } from '../stickers/lib/exportStickers'
@@ -38,6 +39,7 @@ import StickerSettingsDialog from '../stickers/components/StickerSettingsDialog'
 import { buildPrintCutPdf } from './exportPrintCut'
 import {
   type CutShape,
+  DEFAULT_BORDER,
   DEFAULT_PRINTCUT_SETTINGS,
   ITEM_BLEED_LABELS,
   type ItemBleed,
@@ -45,6 +47,7 @@ import {
   type Product,
   bleedOptions,
   fmtSize,
+  getContour,
   itemDpi,
   itemShape,
   loadPrintCutSettings,
@@ -97,7 +100,8 @@ function PrintCut({ active }: { active: boolean }) {
   // ---------- layout
   const nestDesigns = useMemo<NestDesign[]>(
     () => items.map((it) => ({ id: it.id, name: it.name, ...itemShape(it, settings.bleedMm), copies: it.copies, rotation: it.rotation })),
-    [items, settings.bleedMm],
+    // a newly traced contour changes itemShape
+    [items, settings.bleedMm, job.contours.version],
   )
   const layout = useMemo(() => nest(nestDesigns, settings), [nestDesigns, settings])
   const [overrides, setOverrides] = useState<Overrides>({})
@@ -332,7 +336,7 @@ function Empty(props: { restored: boolean; onPick: () => void; errors: string[];
       ))}
       {props.products.length > 0 && (
         <p className="mt-6 text-center text-sm text-slate-500">
-          Recognised automatically: {props.products.map((p) => `${p.name} (${p.shape === 'circle' ? 'round' : p.shape === 'rounded' ? 'rounded' : 'rectangle'})`).join(' · ')}
+          Recognised automatically: {props.products.map((p) => `${p.name} (${p.shape === 'circle' ? 'round' : p.shape === 'rounded' ? 'rounded' : p.shape === 'contour' ? 'contour' : 'rectangle'})`).join(' · ')}
         </p>
       )}
     </div>
@@ -342,9 +346,16 @@ function Empty(props: { restored: boolean; onPick: () => void; errors: string[];
 /* ------------------------------------------------------------------ one design */
 
 const SHAPES: { value: CutShape; label: ReactNode; hint: string }[] = [
+  { value: 'contour', label: <><Shapes size={12} /> Contour</>, hint: 'Follows the outline of the design, with a border around it' },
   { value: 'rect', label: <><Square size={12} /> Rectangle</>, hint: 'Cut on the edge of the design' },
   { value: 'rounded', label: <><RectangleHorizontal size={12} /> Rounded</>, hint: 'Rectangle with rounded corners' },
   { value: 'circle', label: <><Circle size={12} /> Circle</>, hint: 'Circle (or oval, if width ≠ height)' },
+]
+
+const BORDERS: { value: BorderStyle; label: string; hint: string }[] = [
+  { value: 'white', label: 'White', hint: 'Plain paper between the design and the cut line' },
+  { value: 'color', label: 'Colour', hint: 'A printed border in any colour' },
+  { value: 'none', label: 'None', hint: 'Cut right on the design edge (its edge colours are printed a little past the cut)' },
 ]
 
 function ItemCard(props: {
@@ -373,6 +384,13 @@ function ItemCard(props: {
   const product = matchProduct({ kind: 'pdf', physicalSize: true, widthMm: it.widthMm, heightMm: it.heightMm }, props.products, 0)?.product
   const sameAsProduct = product && product.shape === it.shape
   const warnings = plan.warnings.filter((w) => !w.startsWith('Bleed was added automatically') && !w.startsWith('Bleed is made from'))
+  const contour = it.shape === 'contour'
+  const border = it.border ?? DEFAULT_BORDER
+  const setBorder = (patch: Partial<typeof border>) => set({ border: { ...border, ...patch } })
+  const traced = contour ? getContour(it, settings.bleedMm) : undefined
+  if (traced) warnings.push(...traced.warnings.map((w) => w.replace('Raise “Smoothing” or the border', 'Make the border wider').replace('one sticker', 'one piece')))
+  const traceError = contour ? job.contours.error(it) : undefined
+  if (traceError) warnings.push(traceError)
   if (dpi !== null && dpi < settings.minDpi) warnings.push(`Prints at ${dpi} DPI at this size – may look soft.`)
   if (g.kind === 'image' && g.physicalSize === false && !product) warnings.push('This image has no size stored in it – check the width and height.')
   if (props.perSheet === 0) warnings.push('Bigger than the usable area of the sheet.')
@@ -388,7 +406,7 @@ function ItemCard(props: {
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold">{it.name}</span>
             <span className="flex items-center gap-1.5 truncate text-xs text-slate-500">
-              {it.shape === 'circle' ? <Circle size={11} /> : <Square size={11} />}
+              {it.shape === 'circle' ? <Circle size={11} /> : contour ? <Shapes size={11} /> : <Square size={11} />}
               {fmtSize(it.widthMm, it.heightMm)}
               {props.perSheet ? ` · ${props.perSheet}/sheet` : ''}
               {warnings.length > 0 && <AlertTriangle size={12} className="text-amber-500" />}
@@ -464,7 +482,40 @@ function ItemCard(props: {
             {it.shape === 'rounded' && <NumberField aria-label="Corner radius" value={it.cornerMm} min={0} max={Math.min(it.widthMm, it.heightMm) / 2} suffix="mm" onChange={(cornerMm) => set({ cornerMm })} />}
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          {contour && (
+            <>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="w-11 text-xs font-semibold text-slate-500">Border</span>
+                <Segmented size="sm" aria-label="Border" value={border.style} onChange={(style) => setBorder({ style })} options={BORDERS} />
+                {border.style !== 'none' && <NumberField aria-label="Border width" value={border.mm} min={0.5} max={20} suffix="mm" onChange={(mm) => setBorder({ mm })} />}
+              </div>
+              {border.style === 'color' && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="w-11 text-xs font-semibold text-slate-500">Colour</span>
+                  {BORDER_SWATCHES.map((c) => (
+                    <button
+                      key={c}
+                      className={`h-6 w-6 rounded-full ring-1 ring-slate-900/15 ${border.color.toLowerCase() === c ? 'outline-2 outline-offset-2 outline-brand-500' : ''}`}
+                      style={{ background: c }}
+                      onClick={() => setBorder({ color: c })}
+                      aria-label={`Border colour ${c}`}
+                      aria-pressed={border.color.toLowerCase() === c}
+                    />
+                  ))}
+                  <input type="color" aria-label="Border colour" className="h-7 w-9 cursor-pointer rounded-md border-0 bg-transparent" value={border.color} onChange={(e) => setBorder({ color: e.target.value })} />
+                </div>
+              )}
+              <div className="text-xs text-slate-500">
+                {traced ? (
+                  <>Cut size {fmtSize(traced.bounds.w, traced.bounds.h)} – the design stays {fmtSize(it.widthMm, it.heightMm)}.</>
+                ) : traceError ? null : (
+                  <span className="inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Tracing the outline…</span>
+                )}
+              </div>
+            </>
+          )}
+
+          {!contour && <div className="flex flex-wrap items-center gap-1.5">
             <span className="w-11 text-xs font-semibold text-slate-500">Bleed</span>
             <select className="field flex-1 py-1.5 text-sm" aria-label="Bleed" value={it.bleedMode} onChange={(e) => set({ bleedMode: e.target.value as ItemBleed })}>
               {bleedOptions(it, g, settings.bleedMm).map((b) => (
@@ -473,7 +524,7 @@ function ItemCard(props: {
                 </option>
               ))}
             </select>
-          </div>
+          </div>}
 
           {proportionsDiffer && (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -602,10 +653,17 @@ function SheetPanel(props: {
     const out: Record<string, StickerVisual> = {}
     for (const it of job.items) {
       const { cut, bleed } = itemShape(it, b)
+      const traced = it.shape === 'contour' ? getContour(it, b) : undefined
+      if (traced) {
+        const pics = job.contours.pictures(it)
+        const border = it.border ?? DEFAULT_BORDER
+        out[it.id] = { cut, bleed, border: border.style, borderColor: border.color, art: pics?.art ?? null, artRect: traced.art.rect, bleedImg: pics?.bleed ?? null, bleedRect: traced.bleedImage?.rect }
+        continue
+      }
       out[it.id] = { cut, bleed, border: 'none', borderColor: '#000', art: previews[it.id] ?? null, artRect: { x: -b, y: -b, w: it.widthMm + 2 * b, h: it.heightMm + 2 * b } }
     }
     return out
-  }, [job.items, previews, settings.bleedMm])
+  }, [job.items, previews, settings.bleedMm, job.contours.version]) // version: a newly traced contour changes what is drawn
   const problems = useMemo(() => (sheet ? layoutProblems(sheet, shapes, settings) : { overlapping: new Set<string>(), outside: new Set<string>() }), [sheet, shapes, settings])
 
   return (
@@ -672,6 +730,7 @@ function DownloadBar(props: { job: PrintCutJob; settings: StickerSettings; sheet
   const date = new Date().toISOString().slice(0, 10)
   const base = `print-cut_${date}_${settings.sheet.name.replace(/[^\w]+/g, '')}_${sheets.length}-sheet${sheets.length === 1 ? '' : 's'}`
   const shapes = useMemo(() => Object.fromEntries(props.nestDesigns.map((d) => [d.id, d])), [props.nestDesigns])
+  const tracing = job.contours.waiting > 0
   const clash = sheets.some((sh) => {
     const p = layoutProblems(sh, shapes, settings)
     return p.overlapping.size > 0 || p.outside.size > 0
@@ -706,22 +765,24 @@ function DownloadBar(props: { job: PrintCutJob; settings: StickerSettings; sheet
         <div className="min-w-0 flex-1 truncate text-sm text-slate-500">
           {error ? (
             <span className="text-red-600">Could not make the PDF: {error}</span>
+          ) : tracing ? (
+            <span className="inline-flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" /> Tracing contour cut lines…</span>
           ) : clash ? (
             <span className="text-amber-700">Some pieces overlap or leave the sheet – fix them before printing.</span>
           ) : (
             <>Print at 100 % – then cut on the {settings.cut.spotName} line</>
           )}
         </div>
-        <button className="btn-ghost px-3 text-xs" disabled={!!busy || !sheets.length} onClick={() => void pdf('print')} title="Artwork and registration marks only">
+        <button className="btn-ghost px-3 text-xs" disabled={!!busy || tracing || !sheets.length} onClick={() => void pdf('print')} title="Artwork and registration marks only">
           Print only
         </button>
-        <button className="btn-ghost px-3 text-xs" disabled={!!busy || !sheets.length} onClick={() => void pdf('cut')} title="Cut lines and registration marks only">
+        <button className="btn-ghost px-3 text-xs" disabled={!!busy || tracing || !sheets.length} onClick={() => void pdf('cut')} title="Cut lines and registration marks only">
           Cut only
         </button>
-        <button className="btn-ghost px-3 text-xs" disabled={!!busy || !sheets.length} onClick={svg} title="Cut lines as SVG, one file per sheet">
+        <button className="btn-ghost px-3 text-xs" disabled={!!busy || tracing || !sheets.length} onClick={svg} title="Cut lines as SVG, one file per sheet">
           Cut SVG
         </button>
-        <button className="btn-primary btn-lg" disabled={!!busy || !sheets.length} onClick={() => void pdf('print-cut')}>
+        <button className="btn-primary btn-lg" disabled={!!busy || tracing || !sheets.length} onClick={() => void pdf('print-cut')}>
           {busy === 'print-cut' ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
           {busy === 'print-cut' ? 'Making PDF…' : 'Download print & cut PDF'}
         </button>

@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 /** Cut-line worker: keeps each artwork decoded and computes cut lines + bleed off the main thread. */
 import type { CutParams } from '../config'
-import { type CutGeometry, computeCut, cutFrame } from '../lib/cutline'
+import { type CutGeometry, type CutRaster, computeCut, cutFrame } from '../lib/cutline'
 import { type ArtKind, bitmapPixels, decodeBitmap, encodePng } from '../lib/imaging'
 import { type BackgroundGuess, guessBackground, hasTransparency, opaqueBounds } from '../lib/matte'
 import { serve } from './rpc'
@@ -73,14 +73,27 @@ serve({
     ctx.drawImage(art.bitmap, bbox.x, bbox.y, bbox.w, bbox.h, (frame.art.x - frame.frame.x) * k, (top - (frame.art.y + frame.art.h)) * k, frame.art.w * k, frame.art.h * k)
     const rgba = ctx.getImageData(0, 0, frame.w, frame.h).data
     const geo = computeCut({ rgba, w: frame.w, h: frame.h, pxPerMm: k, originX: frame.frame.x, originTopY: top }, frame, req.params, req.bleedMm)
-    const { bleedImage, ...rest } = geo
-    const result: CutResult = rest
-    const transfer: Transferable[] = []
-    if (bleedImage) {
-      const png = await encodePng({ data: bleedImage.rgba, w: bleedImage.w, h: bleedImage.h })
-      result.bleedImage = { png, rect: bleedImage.rect }
-      transfer.push(png.buffer)
-    }
-    return { result, transfer }
+    return withPngs(geo)
+  },
+
+  /** A contour cut around pixels made elsewhere (Print & Cut), plus those pixels as a PNG to print. */
+  async cutRaster({ raster, params, bleedMm }: { raster: CutRaster; params: CutParams; bleedMm: number }) {
+    const frame = cutFrame(raster.w / raster.pxPerMm, raster.h / raster.pxPerMm, params, bleedMm)
+    const { result, transfer } = await withPngs(computeCut(raster, frame, params, bleedMm))
+    const art = await encodePng({ data: raster.rgba, w: raster.w, h: raster.h })
+    const rect = { x: raster.originX, y: raster.originTopY - raster.h / raster.pxPerMm, w: raster.w / raster.pxPerMm, h: raster.h / raster.pxPerMm }
+    return { result: { ...result, art: { png: art, rect } }, transfer: [...transfer, art.buffer] }
   },
 })
+
+async function withPngs(geo: CutGeometry): Promise<{ result: CutResult; transfer: Transferable[] }> {
+  const { bleedImage, ...rest } = geo
+  const result: CutResult = rest
+  const transfer: Transferable[] = []
+  if (bleedImage) {
+    const png = await encodePng({ data: bleedImage.rgba, w: bleedImage.w, h: bleedImage.h })
+    result.bleedImage = { png, rect: bleedImage.rect }
+    transfer.push(png.buffer)
+  }
+  return { result, transfer }
+}

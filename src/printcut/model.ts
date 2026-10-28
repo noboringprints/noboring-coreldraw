@@ -5,16 +5,21 @@
  * Unlike stickers, the design is placed at its exact finished size and the cut line is an exact vector shape
  * (rectangle, rounded rectangle or circle/oval) on its trim edge – the same rules as posters: never scaled to
  * make bleed, missing bleed is built outside the cut line.
+ * A 'contour' cut instead follows the design's own outline plus a border (white, printed colour or none),
+ * like the sticker tool: the outline is traced from a picture of the design (see contourRaster).
  *
  * "Local space" of an item = its trim box [0, w] × [0, h], mm, y up.
  */
 import { MM_PER_INCH } from '../config/defaults'
 import { type ArtPiece, type BleedMode, type FitMode, type SourceGeometry, detectBleed, planArtwork } from '../lib/artwork'
 import { type Matrix, type Rect, multiply, round3 } from '../lib/geometry'
-import { type StickerSettings, STICKER_SHEETS, cloneStickerSettings } from '../stickers/config'
+import type { RGBAImage } from '../lib/bleedRaster'
+import { type BorderStyle, type CutParams, type StickerSettings, STICKER_SHEETS, cloneStickerSettings } from '../stickers/config'
+import { type CutRaster, analysisPxPerMm, borderOf } from '../stickers/lib/cutline'
+import { fillHoles } from '../stickers/lib/edt'
 import { type BezierPath, ellipsePath, roundedRectPath } from '../stickers/lib/paths'
 
-export type CutShape = 'rect' | 'rounded' | 'circle'
+export type CutShape = 'rect' | 'rounded' | 'circle' | 'contour'
 /** 'grow' = an enlarged copy of the design under it, so the edge colour carries on past ANY cut shape (best for circles). */
 export type ItemBleed = BleedMode | 'grow'
 
@@ -45,7 +50,20 @@ export interface PrintCutItem {
    * when the file has empty space around it. Unset = the whole file is the design.
    */
   crop?: Rect
+  /** Contour cut only: the border between the design and the cut line (unset = DEFAULT_BORDER). */
+  border?: ItemBorder
 }
+
+export interface ItemBorder {
+  /** white = paper shows between design and cut, color = printed border, none = cut right on the design edge. */
+  style: BorderStyle
+  mm: number
+  color: string
+}
+
+export const DEFAULT_BORDER: ItemBorder = { style: 'white', mm: 3, color: '#ffffff' }
+/** Notches and gaps narrower than about twice this are filled, so the blade makes one smooth pass. */
+export const CONTOUR_SMOOTH_MM = 2
 
 /** A remembered product: files of this size get this name and cut shape automatically. */
 export interface Product {
@@ -86,7 +104,11 @@ const shapeCache = new Map<string, { cut: BezierPath[]; bleed: BezierPath[]; bou
  * Cut line (the trim shape) and bleed outline of an item, local mm.
  * Cached by value, so the same shape is always the same array – the nesting and drawing caches key on it.
  */
-export function itemShape(it: Pick<PrintCutItem, 'widthMm' | 'heightMm' | 'shape' | 'cornerMm'>, bleedMm: number) {
+export function itemShape(
+  it: Pick<PrintCutItem, 'widthMm' | 'heightMm' | 'shape' | 'cornerMm'> & Partial<PrintCutItem>,
+  bleedMm: number,
+): { cut: BezierPath[]; bleed: BezierPath[]; bounds: Rect } {
+  if (it.shape === 'contour') return getContour(it as PrintCutItem, bleedMm) ?? contourStandIn(it as PrintCutItem, bleedMm)
   const { widthMm: w, heightMm: h, shape } = it
   const r = shape === 'rounded' ? Math.max(0, it.cornerMm) : 0
   const key = `${shape}|${w}|${h}|${r}|${bleedMm}`
@@ -100,6 +122,84 @@ export function itemShape(it: Pick<PrintCutItem, 'widthMm' | 'heightMm' | 'shape
     if (shapeCache.size > 500) shapeCache.delete(shapeCache.keys().next().value!)
   }
   return hit
+}
+
+/* ------------------------------------------------------------------ contour cut */
+
+export const contourParams = (it: Pick<PrintCutItem, 'border'>): CutParams => {
+  const b = it.border ?? DEFAULT_BORDER
+  return { shape: 'contour', border: b.style, borderMm: b.mm, borderColor: b.color, cornerMm: 0, smoothMm: CONTOUR_SMOOTH_MM }
+}
+
+/** A traced contour cut, in the item's local mm (the design's box is [0, w] × [0, h]). */
+export interface ContourGeometry {
+  cut: BezierPath[]
+  bleed: BezierPath[]
+  bounds: Rect
+  /** Edge colours carried past the cut (border 'none'). */
+  bleedImage?: { png: Uint8Array; rect: Rect }
+  /** The design with its empty background taken away – printed for 'color' / 'none' borders. */
+  art: { png: Uint8Array; rect: Rect }
+  pieces: number
+  warnings: string[]
+}
+
+/** Everything the traced outline depends on. */
+export const contourKey = (it: PrintCutItem, bleedMm: number) =>
+  ['contour', it.sourceId, it.pageIndex, it.widthMm, it.heightMm, it.fit, JSON.stringify(it.crop ?? null), JSON.stringify(it.border ?? DEFAULT_BORDER), bleedMm].join('|')
+
+const contours = new Map<string, ContourGeometry>()
+export const getContour = (it: PrintCutItem, bleedMm: number) => contours.get(contourKey(it, bleedMm))
+export function setContour(key: string, g: ContourGeometry) {
+  contours.set(key, g)
+  if (contours.size > 200) contours.delete(contours.keys().next().value!)
+}
+
+const standIns = new Map<string, { cut: BezierPath[]; bleed: BezierPath[]; bounds: Rect }>()
+/** Until the outline is traced: the design's box plus the border, so the layout is close already. */
+function contourStandIn(it: PrintCutItem, bleedMm: number) {
+  const g = borderOf(contourParams(it))
+  const key = `${it.widthMm}|${it.heightMm}|${g}|${bleedMm}`
+  let hit = standIns.get(key)
+  if (!hit) {
+    const b = Math.max(0, bleedMm)
+    const make = (grow: number) => roundedRectPath(-g - grow, -g - grow, it.widthMm + 2 * (g + grow), it.heightMm + 2 * (g + grow), g + grow)
+    hit = { cut: [make(0)], bleed: [make(b)], bounds: { x: -g, y: -g, w: it.widthMm + 2 * g, h: it.heightMm + 2 * g } }
+    standIns.set(key, hit)
+  }
+  return hit
+}
+
+/** Empty space rendered around the design for tracing: room for the border, smoothing and bleed. */
+export const contourPadMm = (it: PrintCutItem, bleedMm: number) => borderOf(contourParams(it)) + Math.max(CONTOUR_SMOOTH_MM, bleedMm) + 1
+
+/** Tracing / printing resolution: about 300 DPI (12 px/mm), less for very big pieces. */
+export const contourPxPerMm = (it: PrintCutItem, bleedMm: number) => {
+  const P = contourPadMm(it, bleedMm)
+  return analysisPxPerMm(it.widthMm + 2 * P, it.heightMm + 2 * P, 6_000_000)
+}
+
+/**
+ * The design rendered on white with the pad around it (`contourPadMm`) → a raster for computeCut.
+ * Everything that isn't white counts as design; white areas enclosed by the design stay part of it
+ * (printed white, not cut out). Pale creams and pinks count, anti-aliasing haze doesn't.
+ */
+export function contourRaster(img: RGBAImage, it: PrintCutItem, bleedMm: number): CutRaster {
+  const { width: w, height: h, data } = img
+  const n = w * h
+  const ink = new Uint8Array(n)
+  for (let i = 0; i < n; i++) ink[i] = data[i * 4 + 3] > 32 && 765 - data[i * 4] - data[i * 4 + 1] - data[i * 4 + 2] > 24 ? 1 : 0
+  const solid = fillHoles(ink, w, h)
+  const rgba = new Uint8ClampedArray(n * 4)
+  for (let i = 0; i < n; i++) {
+    if (!solid[i]) continue
+    rgba[i * 4] = data[i * 4]
+    rgba[i * 4 + 1] = data[i * 4 + 1]
+    rgba[i * 4 + 2] = data[i * 4 + 2]
+    rgba[i * 4 + 3] = 255
+  }
+  const P = contourPadMm(it, bleedMm)
+  return { rgba, w, h, pxPerMm: w / (it.widthMm + 2 * P), originX: -P, originTopY: it.heightMm + P }
 }
 
 /* ------------------------------------------------------------------ artwork */
@@ -124,6 +224,11 @@ export const itemGeometry = (it: Pick<PrintCutItem, 'crop'>, g: SourceGeometry):
 export function planItem(it: PrintCutItem, file: SourceGeometry, bleedMm: number): ItemPlan {
   const { widthMm: w, heightMm: h } = it
   const g = itemGeometry(it, file)
+  if (it.shape === 'contour') {
+    // the border (or the traced edge colours) is what goes past the cut – the design itself is placed as is
+    const plan = planArtwork(g, w, h, 0, 'none', it.fit)
+    return { main: plan.main, under: [], clipMainToCut: false, rasterStrips: null, plan, warnings: plan.warnings }
+  }
   if (it.bleedMode === 'grow') {
     const plan = planArtwork(g, w, h, 0, 'none', it.fit)
     const under: ArtPiece[] = []
@@ -282,7 +387,8 @@ export function newItemFor(
   if (match) [w, h] = [match.w, match.h]
   else if (g.trimBox) [w, h] = [round3(g.trimBox.w), round3(g.trimBox.h)]
   else [w, h] = [round3(g.widthMm), round3(g.heightMm)]
-  const shape = match?.product.shape ?? (content?.ellipse ? 'circle' : 'rect')
+  // a design with empty space around it is cut on its own outline
+  const shape: CutShape = match?.product.shape ?? (content ? 'contour' : 'rect')
   let bleedMode: ItemBleed = crop ? 'mirror' : detectBleed(g, w, h, bleedMm).mode
   if (bleedMode !== 'included' && bleedMm > 0 && shape !== 'rect') bleedMode = 'grow'
   return {

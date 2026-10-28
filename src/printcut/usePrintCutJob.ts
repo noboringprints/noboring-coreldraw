@@ -2,8 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { browserRasterizer, openPdf, renderPage, thumbnail } from '../lib/pdfRender'
 import { type SourceFile, newId, readSource } from '../lib/sources'
 import type { StickerSettings } from '../stickers/config'
-import { buildItemPreviewPdf, buildSourcePdf } from './exportPrintCut'
-import { type ContentInfo, type PrintCutItem, type Product, findContent, newItemFor } from './model'
+import type { CutResult } from '../stickers/workers/cut.worker'
+import { RpcClient } from '../stickers/workers/rpc'
+import { buildItemArtPdf, buildItemPreviewPdf, buildSourcePdf } from './exportPrintCut'
+import {
+  type ContentInfo,
+  type ContourGeometry,
+  type PrintCutItem,
+  type Product,
+  contourKey,
+  contourParams,
+  contourPxPerMm,
+  contourRaster,
+  findContent,
+  getContour,
+  newItemFor,
+  setContour,
+} from './model'
 import { loadJob, saveJob } from './store'
 
 const thumbKey = (sourceId: string, page: number) => `${sourceId}:${page}`
@@ -154,7 +169,9 @@ export function usePrintCutJob(settings: StickerSettings, products: Product[], t
   const thumbOf = (it: PrintCutItem) => thumbs[thumbKey(it.sourceId, it.pageIndex)]
   const contentOf = (it: PrintCutItem) => contents[thumbKey(it.sourceId, it.pageIndex)] ?? null
 
-  return { sources, items, setItems, thumbOf, contentOf, loading, errors, restored, addFiles, update, remove, duplicate, clear }
+  const contours = useContours(items, sources, settings.bleedMm)
+
+  return { sources, items, setItems, thumbOf, contentOf, contours, loading, errors, restored, addFiles, update, remove, duplicate, clear }
 }
 
 export type PrintCutJob = ReturnType<typeof usePrintCutJob>
@@ -173,7 +190,7 @@ export function useItemPreviews(items: PrintCutItem[], sources: Record<string, S
 
   useEffect(() => {
     let cancelled = false
-    const wanted = new Map(items.map((it) => [previewKey(it, bleedMm), it]))
+    const wanted = new Map(items.filter((it) => it.shape !== 'contour').map((it) => [previewKey(it, bleedMm), it]))
     void (async () => {
       for (const [key, it] of wanted) {
         if (cancelled) return
@@ -222,3 +239,73 @@ export function useItemPreviews(items: PrintCutItem[], sources: Record<string, S
   }
   return out
 }
+
+/* ------------------------------------------------------------------ contour cuts */
+
+let cutRpc: RpcClient | null = null
+const cutWorker = () => (cutRpc ??= new RpcClient(new Worker(new URL('../stickers/workers/cut.worker.ts', import.meta.url), { type: 'module' })))
+
+export interface ContourPictures {
+  art: ImageBitmap
+  bleed?: ImageBitmap
+}
+
+/**
+ * Traces the outline of every contour-cut item, one at a time: the design is rendered on white, its empty
+ * background taken away, and the cut line + border worked out in the cut worker (same maths as stickers).
+ * The results go into the model's contour cache; `version` changes whenever a new one lands.
+ */
+export function useContours(items: PrintCutItem[], sources: Record<string, SourceFile>, bleedMm: number) {
+  const [version, setVersion] = useState(0)
+  const [pictures, setPictures] = useState<Record<string, ContourPictures>>({})
+  const [failed, setFailed] = useState<Record<string, string>>({})
+  const pending = useRef(new Set<string>())
+
+  const wanted = items.filter((it) => it.shape === 'contour' && sources[it.sourceId])
+  const waiting = wanted.filter((it) => !getContour(it, bleedMm) && !failed[contourKey(it, bleedMm)]).length
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      for (const it of items) {
+        if (cancelled) return
+        const src = sources[it.sourceId]
+        const key = contourKey(it, bleedMm)
+        if (it.shape !== 'contour' || !src || getContour(it, bleedMm) || failed[key] || pending.current.has(key)) continue
+        pending.current.add(key)
+        try {
+          const [img] = await browserRasterizer.render(await buildItemArtPdf(it, src, bleedMm), contourPxPerMm(it, bleedMm))
+          const raster = contourRaster(img, it, bleedMm)
+          const res = await cutWorker().call<CutResult & { art: ContourGeometry['art'] }>(
+            'cutRaster',
+            { raster, params: contourParams(it), bleedMm },
+            { transfer: [raster.rgba.buffer] },
+          )
+          if (!res.cut.length) throw new Error(res.warnings[0] ?? 'Could not find an outline to cut around.')
+          setContour(key, res)
+          const art = await createImageBitmap(new Blob([res.art.png as BlobPart], { type: 'image/png' }))
+          const bleed = res.bleedImage ? await createImageBitmap(new Blob([res.bleedImage.png as BlobPart], { type: 'image/png' })) : undefined
+          setPictures((m) => ({ ...m, [key]: { art, bleed } }))
+          setVersion((v) => v + 1)
+        } catch (e) {
+          setFailed((f) => ({ ...f, [key]: (e as Error).message }))
+        } finally {
+          pending.current.delete(key)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [items, sources, bleedMm, failed, version])
+
+  return {
+    version,
+    /** Contour items still being traced (the layout uses a stand-in box meanwhile). */
+    waiting,
+    pictures: (it: PrintCutItem) => pictures[contourKey(it, bleedMm)],
+    error: (it: PrintCutItem) => failed[contourKey(it, bleedMm)],
+  }
+}
+
+export type Contours = ReturnType<typeof useContours>

@@ -4,7 +4,23 @@ import { PT_PER_MM } from '../src/config/defaults'
 import { apply } from '../src/lib/geometry'
 import { readSource, type SourceFile } from '../src/lib/sources'
 import { buildPrintCutPdf, buildItemPreviewPdf } from '../src/printcut/exportPrintCut'
-import { DEFAULT_PRINTCUT_SETTINGS, DEFAULT_PRODUCTS, type PrintCutItem, findContent, itemShape, matchProduct, newItemFor, planItem } from '../src/printcut/model'
+import {
+  DEFAULT_PRINTCUT_SETTINGS,
+  DEFAULT_PRODUCTS,
+  type PrintCutItem,
+  contourKey,
+  contourParams,
+  contourPadMm,
+  contourRaster,
+  findContent,
+  itemShape,
+  matchProduct,
+  newItemFor,
+  planItem,
+  setContour,
+} from '../src/printcut/model'
+import { computeCut, cutFrame } from '../src/stickers/lib/cutline'
+import { createCanvas } from '@napi-rs/canvas'
 import { layoutProblems, nest } from '../src/stickers/lib/nest'
 import { flatten } from '../src/stickers/lib/paths'
 
@@ -152,12 +168,11 @@ describe('cut at the design edge', () => {
     expect(findContent(picture(50, 50, () => true), 50, 50)).toBeNull()
   })
 
-  it('new pieces are cut round on the design edge, at the design’s own size', () => {
+  it('new pieces are cut on the design’s own outline, at the design’s own size', () => {
     const g = { kind: 'pdf' as const, physicalSize: true, widthMm: 90, heightMm: 90 }
     const content = findContent(round, 90, 90)
     const it = newItemFor('x', 'x', 's', 0, g, [], 2, content)
-    expect(it.shape).toBe('circle')
-    expect(it.bleedMode).toBe('grow')
+    expect(it.shape).toBe('contour')
     expect(it.crop).toEqual(content!.rect)
     expect(it.widthMm).toBeCloseTo(77.8, 0)
     // the design part of the file lands exactly on the cut circle's box
@@ -175,5 +190,80 @@ describe('cut at the design edge', () => {
     const pic = picture(90, 90, (x, y) => (x - 45) ** 2 + (y - 45) ** 2 <= 41.1 * 41.1)
     const it = newItemFor('x', 'x', 's', 0, { kind: 'pdf', physicalSize: true, widthMm: 90, heightMm: 90 }, DEFAULT_PRODUCTS, 2, findContent(pic, 90, 90))
     expect(it.product).toBe('Round 82 mm')
+  })
+})
+
+describe('contour cut', () => {
+  /** A half disc (like half a diya) with a white hole in it, 60 × 40 mm, drawn on white with the tracing pad around it. */
+  const item: PrintCutItem = {
+    id: 'h',
+    name: 'half',
+    sourceId: 'src-h',
+    pageIndex: 0,
+    widthMm: 60,
+    heightMm: 40,
+    shape: 'contour',
+    cornerMm: 0,
+    bleedMode: 'none',
+    fit: 'fit',
+    copies: 1,
+    rotation: 'auto',
+    border: { style: 'color', mm: 3, color: '#ffcc00' },
+  }
+  const k = 8
+  const P = contourPadMm(item, s.bleedMm)
+  const W = Math.round((60 + 2 * P) * k)
+  const H = Math.round((40 + 2 * P) * k)
+  const data = new Uint8ClampedArray(W * H * 4).fill(255)
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      // local mm, y up; half disc of radius 30 sitting on the bottom edge, white hole of radius 5 inside
+      const mx = (x + 0.5) / k - P
+      const my = 40 + P - (y + 0.5) / k
+      const d = Math.hypot(mx - 30, my)
+      if (my >= 0 && d <= 30 && Math.hypot(mx - 30, my - 15) > 5) data.set([200, 40, 30, 255], (y * W + x) * 4)
+    }
+  const raster = contourRaster({ width: W, height: H, data }, item, s.bleedMm)
+
+  it('the background is taken away, enclosed white stays part of the design', () => {
+    const at = (mx: number, my: number) => raster.rgba[(Math.floor((40 + P - my) * k) * W + Math.floor((mx + P) * k)) * 4 + 3]
+    expect(at(30, 15)).toBe(255) // the white hole is printed, not cut out
+    expect(at(30, 10)).toBe(255)
+    expect(at(2, 35)).toBe(0) // the empty corner is gone
+  })
+
+  it('the cut follows the outline plus the border', () => {
+    const p = contourParams(item)
+    const geo = computeCut(raster, cutFrame(W / k, H / k, p, s.bleedMm), p, s.bleedMm)
+    expect(geo.pieces).toBe(1)
+    // half disc 60 × 30 mm + 3 mm border all round
+    expect(geo.bounds.x).toBeCloseTo(-3, 0)
+    expect(geo.bounds.y).toBeCloseTo(-3, 0)
+    expect(geo.bounds.w).toBeCloseTo(66, 0)
+    expect(geo.bounds.h).toBeCloseTo(36, 0)
+    // the top-left corner of the box is NOT inside the cut (it is not a rectangle)
+    const pts = flatten(geo.cut[0])
+    expect(pts.every(([x, y]) => Math.hypot(x - 30, y) <= 33 + 0.3)).toBe(true)
+  })
+
+  it('exports the traced cut with a printed colour border', async () => {
+    const p = contourParams(item)
+    const geo = computeCut(raster, cutFrame(W / k, H / k, p, s.bleedMm), p, s.bleedMm)
+    const c = createCanvas(W, H)
+    const g = c.getContext('2d')
+    const img = g.createImageData(W, H)
+    img.data.set(raster.rgba)
+    g.putImageData(img, 0, 0)
+    const png = new Uint8Array(c.toBuffer('image/png'))
+    setContour(contourKey(item, s.bleedMm), { cut: geo.cut, bleed: geo.bleed, bounds: geo.bounds, pieces: geo.pieces, warnings: geo.warnings, art: { png, rect: { x: -P, y: -P, w: W / k, h: H / k } } })
+    expect(itemShape(item, s.bleedMm).bounds).toEqual(geo.bounds)
+    const src = await readSource('half.pdf', await designPdf(60, 40), 'src-h')
+    const { sheets } = nest([{ id: 'h', name: 'half', ...itemShape(item, s.bleedMm), copies: 4, rotation: 'auto' }], s)
+    const bytes = await buildPrintCutPdf(sheets, [{ ...item, copies: 4 }], { [src.id]: src }, s, { mode: 'print-cut', date: new Date('2026-10-28') })
+    const doc = await PDFDocument.load(bytes)
+    expect(doc.getPageCount()).toBe(1)
+    const text = Buffer.from(bytes).toString('latin1')
+    expect(text).toContain('/CutContour')
+    expect(text).toMatch(/\/Subtype \/Image/) // the design without its background
   })
 })

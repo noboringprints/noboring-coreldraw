@@ -13,7 +13,7 @@ import type { SourceFile } from '../lib/sources'
 import type { StickerSettings } from '../stickers/config'
 import { type ExportDesign, type ExportMode, buildStickerPdf, pathOps } from '../stickers/lib/exportStickers'
 import type { StickerSheetLayout } from '../stickers/lib/nest'
-import { type PrintCutItem, itemShape, planItem } from './model'
+import { type PrintCutItem, DEFAULT_BORDER, contourPadMm, getContour, itemShape, planItem } from './model'
 
 const embedders = new WeakMap<PDFDocument, SourceEmbedder>()
 const embedderFor = (doc: PDFDocument) => {
@@ -46,6 +46,25 @@ export function exportDesigns(items: PrintCutItem[], sources: Record<string, Sou
     const src = sources[it.sourceId]
     if (!src) continue
     const { cut, bleed, bounds } = itemShape(it, s.bleedMm)
+    const drawArt = (doc: PDFDocument, page: PDFPage) => drawItemArt(doc, page, IDENTITY, it, src, s.bleedMm, rasterizer)
+    const contour = it.shape === 'contour' ? getContour(it, s.bleedMm) : undefined
+    if (contour) {
+      const border = it.border ?? DEFAULT_BORDER
+      out[it.id] = {
+        id: it.id,
+        name: it.name,
+        cut,
+        bleed,
+        bounds,
+        border: border.style,
+        borderColor: border.color,
+        bleedImage: contour.bleedImage,
+        // white border: the design as it is (vectors stay vectors); otherwise without its white background,
+        // so the printed border / edge colours show right up to the design
+        ...(border.style === 'white' ? { drawArt } : { art: { bytes: contour.art.png, kind: 'png' as const, rect: contour.art.rect } }),
+      }
+      continue
+    }
     out[it.id] = {
       id: it.id,
       name: it.name,
@@ -54,7 +73,7 @@ export function exportDesigns(items: PrintCutItem[], sources: Record<string, Sou
       bounds,
       border: 'none',
       borderColor: '#000000',
-      drawArt: (doc, page) => drawItemArt(doc, page, IDENTITY, it, src, s.bleedMm, rasterizer),
+      drawArt,
     }
   }
   return out
@@ -79,6 +98,15 @@ export async function buildItemPreviewPdf(it: PrintCutItem, src: SourceFile, ble
   page.pushOperators(pushGraphicsState(), cm(M), ...pathOps(itemShape(it, b).bleed, IDENTITY), clip(), endPath())
   await drawItemArt(doc, page, IDENTITY, it, src, b, rasterizer)
   page.pushOperators(popGraphicsState())
+  return doc.save()
+}
+
+/** Just the design with empty space around it (a contour cut is traced from a picture of this). */
+export async function buildItemArtPdf(it: PrintCutItem, src: SourceFile, bleedMm: number): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const P = contourPadMm(it, bleedMm)
+  const page = doc.addPage([(it.widthMm + 2 * P) * PT_PER_MM, (it.heightMm + 2 * P) * PT_PER_MM])
+  await drawItemArt(doc, page, multiply(scale(PT_PER_MM), translate(P, P)), it, src, 0)
   return doc.save()
 }
 
