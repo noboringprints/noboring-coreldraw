@@ -21,6 +21,7 @@ import {
 } from '../src/printcut/model'
 import { computeCut, cutFrame } from '../src/stickers/lib/cutline'
 import { createCanvas } from '@napi-rs/canvas'
+import { markRects } from '../src/stickers/lib/marks'
 import { layoutProblems, nest } from '../src/stickers/lib/nest'
 import { flatten } from '../src/stickers/lib/paths'
 
@@ -288,5 +289,20 @@ describe('contour cut', () => {
     const text = Buffer.from(bytes).toString('latin1')
     expect(text).toContain('/CutContour')
     expect(text).toMatch(/\/Subtype \/Image/) // the design without its background
+  })
+})
+
+describe('print & cut registration marks', () => {
+  it('defaults to crosshair "+" marks with 7 mm size, 6.35 mm margin and 0.8 mm thickness', () => {
+    expect(DEFAULT_PRINTCUT_SETTINGS.marginMm).toBeCloseTo(6.35, 2)
+    expect(DEFAULT_PRINTCUT_SETTINGS.marks.style).toBe('crosshair')
+    expect(DEFAULT_PRINTCUT_SETTINGS.marks.sizeMm).toBe(7)
+    expect(DEFAULT_PRINTCUT_SETTINGS.marks.thicknessMm).toBe(0.8)
+    const rects = markRects(DEFAULT_PRINTCUT_SETTINGS)
+    expect(rects).toHaveLength(8)
+    expect(Math.min(...rects.map((r) => r.x))).toBeCloseTo(6.35, 2)
+    expect(Math.min(...rects.map((r) => r.y))).toBeCloseTo(6.35, 2)
+    expect(Math.max(...rects.map((r) => r.x + r.w))).toBeCloseTo(DEFAULT_PRINTCUT_SETTINGS.sheet.widthMm - 6.35, 2)
+    expect(Math.max(...rects.map((r) => r.y + r.h))).toBeCloseTo(DEFAULT_PRINTCUT_SETTINGS.sheet.heightMm - 6.35, 2)
   })
 })

@@ -30,6 +30,7 @@ import { browserRasterizer } from '../lib/pdfRender'
 import { round3 } from '../lib/geometry'
 import { BORDER_SWATCHES, type BorderStyle, type StickerSettings } from '../stickers/config'
 import { buildCutSvg } from '../stickers/lib/exportStickers'
+import { pathLength } from '../stickers/lib/paths'
 import { type NestDesign, type StickerSheetLayout, layoutProblems, nest, roomOnLastSheet } from '../stickers/lib/nest'
 import type { ExportMode } from '../stickers/lib/exportStickers'
 import { CHECKER, type StickerVisual } from '../stickers/render'
@@ -388,7 +389,7 @@ function ItemCard(props: {
   const border = it.border ?? DEFAULT_BORDER
   const setBorder = (patch: Partial<typeof border>) => set({ border: { ...border, ...patch } })
   const traced = contour ? getContour(it, settings.bleedMm) : undefined
-  if (traced) warnings.push(...traced.warnings.map((w) => w.replace('Raise “Smoothing” or the border', 'Make the border wider').replace('one sticker', 'one piece')))
+  if (traced) warnings.push(...traced.warnings.map((w) => w.replace('one sticker', 'one piece')))
   const traceError = contour ? job.contours.error(it) : undefined
   if (traceError) warnings.push(traceError)
   if (dpi !== null && dpi < settings.minDpi) warnings.push(`Prints at ${dpi} DPI at this size – may look soft.`)
@@ -505,9 +506,33 @@ function ItemCard(props: {
                   <input type="color" aria-label="Border colour" className="h-7 w-9 cursor-pointer rounded-md border-0 bg-transparent" value={border.color} onChange={(e) => setBorder({ color: e.target.value })} />
                 </div>
               )}
-              <div className="text-xs text-slate-500">
+              <div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="w-11 text-xs font-semibold text-slate-500" title="Fills small gaps and notches so the blade cuts one clean line">Smooth</span>
+                  <input
+                    type="range"
+                    aria-label="Smoothing slider"
+                    className="min-w-0 flex-1 accent-brand-600"
+                    min={0}
+                    max={10}
+                    step={0.5}
+                    value={Math.min(10, it.smoothMm ?? 0)}
+                    onChange={(e) => set({ smoothMm: Number(e.target.value) })}
+                  />
+                  <NumberField aria-label="Smoothing" value={it.smoothMm ?? 0} min={0} max={30} suffix="mm" onChange={(smoothMm) => set({ smoothMm })} />
+                </div>
+                <p className="mt-1 pl-[3.125rem] text-xs text-slate-500">Fills small gaps and notches so the blade cuts one clean line</p>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                 {traced ? (
-                  <>Cut size {fmtSize(traced.bounds.w, traced.bounds.h)} – the design stays {fmtSize(it.widthMm, it.heightMm)}.</>
+                  <>
+                    <span>
+                      {traced.pieces} piece{traced.pieces === 1 ? '' : 's'}
+                    </span>
+                    <span>cut {fmtSize(traced.bounds.w, traced.bounds.h)}</span>
+                    <span>cut length {round3(traced.cut.reduce((n, c) => n + pathLength(c), 0) / 25.4 * 10) / 10}″</span>
+                    <span>{traced.cut.reduce((n, c) => n + c.segs.length, 0)} nodes</span>
+                  </>
                 ) : traceError ? null : (
                   <span className="inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Tracing the outline…</span>
                 )}

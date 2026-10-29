@@ -52,6 +52,8 @@ export interface PrintCutItem {
   crop?: Rect
   /** Contour cut only: the border between the design and the cut line (unset = DEFAULT_BORDER). */
   border?: ItemBorder
+  /** Contour cut only: fills notches and gaps narrower than about twice this, so the blade makes one smooth pass (unset = 0, follow every curve). */
+  smoothMm?: number
 }
 
 export interface ItemBorder {
@@ -63,8 +65,6 @@ export interface ItemBorder {
 
 /** Cut right on the design edge; a border is opt-in (white / colour, `mm` wide). */
 export const DEFAULT_BORDER: ItemBorder = { style: 'none', mm: 3, color: '#ffffff' }
-/** Notches and gaps narrower than about twice this are filled, so the blade makes one smooth pass. */
-export const CONTOUR_SMOOTH_MM = 2
 
 /** A remembered product: files of this size get this name and cut shape automatically. */
 export interface Product {
@@ -81,11 +81,11 @@ export const DEFAULT_PRODUCTS: Product[] = [
   { id: 'p-mug-wrap', name: 'Mug wrap 250 × 84', widthMm: 250, heightMm: 84, shape: 'rect', cornerMm: 0 },
 ]
 
-/** Sheet & cutter defaults: 13 × 19 with 4 corner dot marks 10 mm in, 2 mm bleed, 5 mm between cut lines. */
+/** Sheet & cutter defaults: 13 × 19 with 4 corner crosshair '+' marks (7 mm, 0.8 mm thick) 6.35 mm in, 2 mm bleed, 5 mm between cut lines. */
 export const DEFAULT_PRINTCUT_SETTINGS: StickerSettings = {
   sheet: STICKER_SHEETS.find((s) => s.name.startsWith('13'))!,
-  marginMm: 10,
-  marks: { style: 'dots', sizeMm: 5, lengthMm: 20, thicknessMm: 0.5, clearanceMm: 5 },
+  marginMm: 6.35,
+  marks: { style: 'crosshair', sizeMm: 7, lengthMm: 20, thicknessMm: 0.8, clearanceMm: 5 },
   gapMm: 5,
   bleedMm: 2,
   cut: { spotName: 'CutContour', displayColor: '#ec008c', lineWidthPt: 0.25 },
@@ -127,10 +127,9 @@ export function itemShape(
 
 /* ------------------------------------------------------------------ contour cut */
 
-export const contourParams = (it: Pick<PrintCutItem, 'border'>): CutParams => {
+export const contourParams = (it: Pick<PrintCutItem, 'border' | 'smoothMm'>): CutParams => {
   const b = it.border ?? DEFAULT_BORDER
-  // no border = follow the edge exactly, notches included (smoothing would fill them in)
-  return { shape: 'contour', border: b.style, borderMm: b.mm, borderColor: b.color, cornerMm: 0, smoothMm: b.style === 'none' ? 0 : CONTOUR_SMOOTH_MM }
+  return { shape: 'contour', border: b.style, borderMm: b.mm, borderColor: b.color, cornerMm: 0, smoothMm: Math.max(0, it.smoothMm ?? 0) }
 }
 
 /** A traced contour cut, in the item's local mm (the design's box is [0, w] × [0, h]). */
@@ -148,7 +147,7 @@ export interface ContourGeometry {
 
 /** Everything the traced outline depends on. */
 export const contourKey = (it: PrintCutItem, bleedMm: number) =>
-  ['contour', it.sourceId, it.pageIndex, it.widthMm, it.heightMm, it.fit, JSON.stringify(it.crop ?? null), JSON.stringify(it.border ?? DEFAULT_BORDER), bleedMm].join('|')
+  ['contour', it.sourceId, it.pageIndex, it.widthMm, it.heightMm, it.fit, JSON.stringify(it.crop ?? null), JSON.stringify(it.border ?? DEFAULT_BORDER), it.smoothMm ?? 0, bleedMm].join('|')
 
 const contours = new Map<string, ContourGeometry>()
 export const getContour = (it: PrintCutItem, bleedMm: number) => contours.get(contourKey(it, bleedMm))
@@ -173,7 +172,7 @@ function contourStandIn(it: PrintCutItem, bleedMm: number) {
 }
 
 /** Empty space rendered around the design for tracing: room for the border, smoothing and bleed. */
-export const contourPadMm = (it: PrintCutItem, bleedMm: number) => borderOf(contourParams(it)) + Math.max(CONTOUR_SMOOTH_MM, bleedMm) + 1
+export const contourPadMm = (it: PrintCutItem, bleedMm: number) => borderOf(contourParams(it)) + Math.max(it.smoothMm ?? 0, bleedMm) + 1
 
 /** Tracing / printing resolution: about 300 DPI (12 px/mm), less for very big pieces. */
 export const contourPxPerMm = (it: PrintCutItem, bleedMm: number) => {
@@ -388,7 +387,7 @@ export function newItemFor(
   let h: number
   if (match) [w, h] = [match.w, match.h]
   else if (g.trimBox) [w, h] = [round3(g.trimBox.w), round3(g.trimBox.h)]
-  else [w, h] = [round3(g.widthMm), round3(g.heightMm)]
+  else[w, h] = [round3(g.widthMm), round3(g.heightMm)]
   // a design with empty space around it is cut on its own outline
   const shape: CutShape = match?.product.shape ?? (content ? 'contour' : 'rect')
   let bleedMode: ItemBleed = crop ? 'mirror' : detectBleed(g, w, h, bleedMm).mode
@@ -422,16 +421,33 @@ export function bleedOptions(it: PrintCutItem, g: SourceGeometry, bleedMm: numbe
 
 /* ------------------------------------------------------------------ saved settings & products */
 
-const SETTINGS_KEY = 'print-ready.printcut.settings.v1'
+const SETTINGS_KEY = 'print-ready.printcut.settings.v2'
+const OLD_SETTINGS_KEY = 'print-ready.printcut.settings.v1'
 const PRODUCTS_KEY = 'print-ready.printcut.products.v1'
 
 export function loadPrintCutSettings(): StickerSettings {
   const d = cloneStickerSettings(DEFAULT_PRINTCUT_SETTINGS)
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    if (!raw) return d
-    const saved = JSON.parse(raw) as Partial<StickerSettings>
-    return { ...d, ...saved, marks: { ...d.marks, ...saved.marks }, cut: { ...d.cut, ...saved.cut }, sheet: saved.sheet ?? d.sheet }
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<StickerSettings>
+      return { ...d, ...saved, marks: { ...d.marks, ...saved.marks }, cut: { ...d.cut, ...saved.cut }, sheet: saved.sheet ?? d.sheet }
+    }
+    const oldRaw = localStorage.getItem(OLD_SETTINGS_KEY)
+    if (oldRaw) {
+      const saved = JSON.parse(oldRaw) as Partial<StickerSettings>
+      const migrated: StickerSettings = {
+        ...d,
+        ...saved,
+        marks: { ...d.marks },
+        marginMm: d.marginMm,
+        cut: { ...d.cut, ...saved.cut },
+        sheet: saved.sheet ?? d.sheet,
+      }
+      savePrintCutSettings(migrated)
+      return migrated
+    }
+    return d
   } catch {
     return d
   }
