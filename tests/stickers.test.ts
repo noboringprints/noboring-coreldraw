@@ -417,3 +417,17 @@ describe('sticker export', () => {
     expect(Number(m[2])).toBeCloseTo(297 - (r.y + r.h / 2), 2)
   })
 })
+
+describe('crosshair marks', () => {
+  it('draws four "+" marks whose outer tips sit marginMm from the sheet edges', async () => {
+    const { markRects } = await import('../src/stickers/lib/marks')
+    const { DEFAULT_STICKER_SETTINGS: d } = await import('../src/stickers/config')
+    const s = { ...d, marks: { ...d.marks, style: 'crosshair' as const, sizeMm: 6, thicknessMm: 0.25 } }
+    const rects = markRects(s)
+    expect(rects).toHaveLength(8)
+    expect(Math.min(...rects.map((r) => r.x))).toBeCloseTo(s.marginMm)
+    expect(Math.min(...rects.map((r) => r.y))).toBeCloseTo(s.marginMm)
+    expect(Math.max(...rects.map((r) => r.x + r.w))).toBeCloseTo(s.sheet.widthMm - s.marginMm)
+    expect(Math.max(...rects.map((r) => r.y + r.h))).toBeCloseTo(s.sheet.heightMm - s.marginMm)
+  })
+})

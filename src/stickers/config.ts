@@ -10,7 +10,7 @@
  */
 import { MM_PER_INCH } from '../config/defaults'
 
-export type MarkStyle = 'dots' | 'l-corners' | 'squares' | 'silhouette' | 'none'
+export type MarkStyle = 'dots' | 'crosshair' | 'l-corners' | 'squares' | 'silhouette' | 'none'
 export type Units = 'in' | 'mm'
 
 export interface StickerSheet {

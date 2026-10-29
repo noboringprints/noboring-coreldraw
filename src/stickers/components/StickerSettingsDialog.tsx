@@ -91,17 +91,20 @@ export default function StickerSettingsDialog(props: {
           onChange={(v) => setMarks({ style: v as MarkStyle })}
           options={[
             { value: 'dots', label: 'Dots', hint: '4 black dots in the corners – die-cut / camera cutters' },
+            { value: 'crosshair', label: '+ Cross', hint: '4 thin crosshairs in the corners – plotter / optical-sensor cutters' },
             { value: 'l-corners', label: 'L corners', hint: 'Graphtec ARMS type 1 style and most cutters' },
             { value: 'squares', label: 'Squares', hint: 'Filled squares in the corners' },
             { value: 'silhouette', label: 'Silhouette', hint: 'Square top-left + L corners' },
             { value: 'none', label: 'None', hint: 'Die / laser cutting, no optical sensor' },
           ]}
         />
-        {(m === 'l-corners' || m === 'silhouette') && (
+        {(m === 'l-corners' || m === 'silhouette' || m === 'crosshair') && (
           <>
-            <Row label="Arm length">
-              <NumberField value={s.marks.lengthMm} min={3} max={50} onChange={(n) => setMarks({ lengthMm: n })} suffix="mm" />
-            </Row>
+            {m !== 'crosshair' && (
+              <Row label="Arm length">
+                <NumberField value={s.marks.lengthMm} min={3} max={50} onChange={(n) => setMarks({ lengthMm: n })} suffix="mm" />
+              </Row>
+            )}
             <Row label="Line thickness">
               <NumberField value={s.marks.thicknessMm} min={0.1} max={3} onChange={(n) => setMarks({ thicknessMm: n })} suffix="mm" />
             </Row>
@@ -110,6 +113,11 @@ export default function StickerSettingsDialog(props: {
         {m === 'dots' && (
           <Row label="Dot size" hint={`Diameter. The dots' outer edge is ${fmtMm(s.marginMm)} mm from the sheet edge (Margin above).`}>
             <NumberField value={s.marks.sizeMm} min={2} max={20} onChange={(n) => setMarks({ sizeMm: n })} suffix="mm" />
+          </Row>
+        )}
+        {m === 'crosshair' && (
+          <Row label="Cross size" hint={`Tip to tip. The crosses' outer tip is ${fmtMm(s.marginMm)} mm from the sheet edge (Margin above).`}>
+            <NumberField value={s.marks.sizeMm} min={3} max={20} onChange={(n) => setMarks({ sizeMm: n })} suffix="mm" />
           </Row>
         )}
         {(m === 'squares' || m === 'silhouette') && (

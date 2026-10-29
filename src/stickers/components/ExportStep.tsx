@@ -11,6 +11,7 @@ import type { StickerJob } from '../useStickerJob'
 
 const MARK_NAMES: Record<StickerSettings['marks']['style'], string> = {
   dots: '4 round corner dots',
+  crosshair: '4 crosshair (+) corner marks',
   'l-corners': 'L-shaped corner marks',
   squares: 'square corner marks',
   silhouette: 'Silhouette-style marks (square + 3 L-corners)',

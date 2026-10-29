@@ -15,6 +15,15 @@ export function markRects(s: StickerSettings): Rect[] {
     { x: sx > 0 ? cx : cx - L, y: sy > 0 ? cy : cy - t, w: L, h: t },
     { x: sx > 0 ? cx : cx - t, y: sy > 0 ? cy : cy - L, w: t, h: L },
   ]
+  // crosshairs: a "+" in each corner, `S` tip to tip, its outer tip `marginMm` from both sheet edges
+  if (style === 'crosshair') {
+    const lo = m + S / 2
+    const centres = [[lo, lo], [W - lo, lo], [lo, H - lo], [W - lo, H - lo]]
+    return centres.flatMap(([cx, cy]) => [
+      { x: cx - S / 2, y: cy - t / 2, w: S, h: t },
+      { x: cx - t / 2, y: cy - S / 2, w: t, h: S },
+    ])
+  }
   if (style === 'squares') return [square(m, m), square(W - m - S, m), square(m, H - m - S), square(W - m - S, H - m - S)]
   const bl = ell(m, m, 1, 1)
   const br = ell(W - m, m, -1, 1)
