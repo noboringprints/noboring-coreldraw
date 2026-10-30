@@ -185,7 +185,6 @@ export function SheetCanvas(props: {
   noun?: string
 }) {
   const { sheet, settings, visuals, shapes, view, problems } = props
-  const noun = props.noun ?? 'sticker'
   const W = settings.sheet.widthMm
   const H = settings.sheet.heightMm
   const host = useRef<HTMLDivElement>(null)
@@ -280,15 +279,7 @@ export function SheetCanvas(props: {
       ctx.restore()
     }
 
-    // label in the bottom margin
-    if (settings.label && settings.marginMm >= 4) {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      ctx.fillStyle = '#94a3b8'
-      ctx.font = `${Math.max(6, Math.min(12, 2.2 * zoom))}px Inter Variable, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(`Sheet ${sheet.index + 1} · ${settings.sheet.name} · ${sheet.placements.length} ${noun}s`, pan.x + (W / 2) * zoom, pan.y + (H - settings.marginMm / 2) * zoom)
-    }
+    // label in the bottom margin removed so canvas preview remains completely plain
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheet, settings, visuals, shapes, view, problems, selected, zoom, pan, vp, dpr])
 

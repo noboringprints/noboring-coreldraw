@@ -102,7 +102,7 @@ export const DEFAULT_SETTINGS: PrintSettings = {
   marginMm: 10,
   minEdgeMm: 3,
   gutterMm: 0,
-  label: { enabled: true, fontSizePt: 6 },
+  label: { enabled: false, fontSizePt: 6 },
   minDpi: 200,
   safeZoneMm: 5,
   bleedStrips: 'image',

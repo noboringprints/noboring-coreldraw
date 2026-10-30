@@ -65,7 +65,7 @@ export const DEFAULT_STICKER_SETTINGS: StickerSettings = {
   gapMm: 3,
   bleedMm: 1.5,
   cut: { spotName: 'CutContour', displayColor: '#ec008c', lineWidthPt: 0.25 },
-  label: true,
+  label: false,
   minDpi: 200,
   units: 'in',
 }

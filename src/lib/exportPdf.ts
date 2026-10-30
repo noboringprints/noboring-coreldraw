@@ -14,12 +14,8 @@ import {
   PDFOperator,
   PDFOperatorNames as Ops,
   PDFNumber,
-  type PDFFont,
   type PDFPage,
   type PDFRef,
-  StandardFonts,
-  cmyk,
-  degrees,
   lineTo,
   moveTo,
   popGraphicsState,
@@ -32,7 +28,7 @@ import { planArtwork } from './artwork'
 import { type Rasterizer, drawStrips, rasterBleedStrips } from './bleedRaster'
 import { expand, multiply, scale } from './geometry'
 import type { ArtRef } from './job'
-import { type Sheet, placementMatrix, sheetLabelText } from './layout'
+import { type Sheet, placementMatrix } from './layout'
 import { SourceEmbedder, drawPiece } from './pdfDraw'
 import type { SourceFile } from './sources'
 
@@ -50,23 +46,6 @@ export interface ExportOptions {
   rasterizer?: Rasterizer
 }
 
-/** Text the standard Helvetica font can't show is replaced, so odd file names never break the export. */
-function safeText(font: PDFFont, text: string): string {
-  const supported = new Set(font.getCharacterSet())
-  return [...text].map((ch) => (supported.has(ch.codePointAt(0)!) ? ch : '?')).join('')
-}
-
-/** Shortens `text` with "…" in the middle part until it fits `maxW` points. */
-function fitText(font: PDFFont, size: number, text: string, maxW: number): string {
-  if (font.widthOfTextAtSize(text, size) <= maxW) return text
-  const [names, ...rest] = text.split('  |  ')
-  const tail = '  |  ' + rest.join('  |  ')
-  let n = names
-  while (n.length > 1 && font.widthOfTextAtSize(n + '…' + tail, size) > maxW) n = n.slice(0, -1)
-  const out = n + '…' + tail
-  return font.widthOfTextAtSize(out, size) <= maxW ? out : out.slice(0, Math.max(1, Math.floor(out.length * (maxW / font.widthOfTextAtSize(out, size)))))
-}
-
 export async function buildPrintPdf(
   sheets: Sheet<ArtRef>[],
   sources: Record<string, SourceFile>,
@@ -80,7 +59,6 @@ export async function buildPrintPdf(
   doc.setProducer('Print Ready (pdf-lib)')
   doc.setCreationDate(date)
   doc.setModificationDate(date)
-  const font = await doc.embedFont(StandardFonts.Helvetica)
 
   // Registration colour: a Separation colour space named "All" prints on every plate.
   const regCS: PDFRef = doc.context.register(
@@ -93,7 +71,6 @@ export async function buildPrintPdf(
   )
 
   const embedder = new SourceEmbedder(doc)
-  const total = opts.totalSheets ?? sheets.length
   const W = s.sheet.widthMm * PT_PER_MM
   const H = s.sheet.heightMm * PT_PER_MM
   const toPt = scale(PT_PER_MM)
@@ -143,30 +120,7 @@ export async function buildPrintPdf(
       page.pushOperators(...ops)
     }
 
-    // ---- label in the waste margin ----
-    if (sheet.label) {
-      const size = s.label.fontSizePt
-      const box = sheet.label.box
-      const along = (sheet.label.rotation === 0 ? box.w : box.h) * PT_PER_MM
-      const across = (sheet.label.rotation === 0 ? box.h : box.w) * PT_PER_MM
-      const raw = sheetLabelText(sheet, total, date, opts.trimNames?.[sheet.groupKey])
-      const text = fitText(font, size, safeText(font, raw), along)
-      const tw = font.widthOfTextAtSize(text, size)
-      const capH = font.heightAtSize(size, { descender: false })
-      const color = cmyk(0, 0, 0, 1)
-      if (sheet.label.rotation === 0) {
-        page.drawText(text, { x: box.x * PT_PER_MM + (along - tw) / 2, y: box.y * PT_PER_MM + (across - capH) / 2, size, font, color })
-      } else {
-        page.drawText(text, {
-          x: box.x * PT_PER_MM + (across + capH) / 2,
-          y: box.y * PT_PER_MM + (along - tw) / 2,
-          size,
-          font,
-          color,
-          rotate: degrees(90),
-        })
-      }
-    }
+    // Margin label text intentionally disabled so printed pages remain completely plain without slug text
   }
   return doc.save({ useObjectStreams: false })
 }

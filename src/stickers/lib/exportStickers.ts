@@ -19,11 +19,9 @@ import {
   type PDFImage,
   type PDFPage,
   type PDFRef,
-  StandardFonts,
   appendBezierCurve,
   clip,
   closePath,
-  cmyk,
   drawObject,
   endPath,
   fill,
@@ -130,7 +128,6 @@ export async function buildStickerPdf(
   doc.setProducer('Print Ready (pdf-lib)')
   doc.setCreationDate(date)
   doc.setModificationDate(date)
-  const font = await doc.embedFont(StandardFonts.Helvetica)
   const withPrint = opts.mode !== 'cut'
   const withCut = opts.mode !== 'print'
 
@@ -160,7 +157,6 @@ export async function buildStickerPdf(
     if (!p) images.set(key, (p = kind === 'png' ? doc.embedPng(bytes) : doc.embedJpg(bytes)))
     return p
   }
-  const names = Object.fromEntries(Object.values(designs).map((d) => [d.id, d.name]))
   const W = s.sheet.widthMm * PT_PER_MM
   const H = s.sheet.heightMm * PT_PER_MM
   const toPt = scale(PT_PER_MM)
@@ -199,22 +195,13 @@ export async function buildStickerPdf(
       page.pushOperators(emc())
     }
 
-    // ---------------- registration marks + label (printed; the cutter's sensor reads the marks)
+    // ---------------- registration marks (printed; the cutter's sensor reads the marks)
     page.pushOperators(bdc(withPrint ? 'OCPrint' : 'OCCut'), pushGraphicsState(), setFillingCmykColor(0, 0, 0, 1))
     for (const r of markRects(s)) page.pushOperators(rectangle(r.x * PT_PER_MM, r.y * PT_PER_MM, r.w * PT_PER_MM, r.h * PT_PER_MM))
     page.pushOperators(...pathOps(markDots(s).map((d) => ellipsePath(d.cx, d.cy, d.r, d.r)), toPt))
     if (markRects(s).length || markDots(s).length) page.pushOperators(fill())
     page.pushOperators(popGraphicsState(), emc())
-    if (s.label && s.marginMm >= 4) {
-      const size = 6
-      const max = W - 2 * (s.marginMm + s.marks.lengthMm + 4) * PT_PER_MM
-      let text = sheetLabel(sheet, sheets.length, s, names, date, opts.noun).replace(/[^\x20-\x7e]/g, '?')
-      while (text.length > 4 && font.widthOfTextAtSize(text, size) > max) text = text.slice(0, -2)
-      const tw = font.widthOfTextAtSize(text, size)
-      page.pushOperators(bdc(withPrint ? 'OCPrint' : 'OCCut'))
-      page.drawText(text, { x: (W - tw) / 2, y: (s.marginMm * PT_PER_MM) / 2 - size / 3, size, font, color: cmyk(0, 0, 0, 1) })
-      page.pushOperators(emc())
-    }
+    // Margin text label intentionally removed so printed sheets remain completely plain without slug text
 
     // ---------------- cut layer
     if (cutCS && overprint) {
