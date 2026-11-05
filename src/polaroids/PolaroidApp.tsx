@@ -114,13 +114,16 @@ function Polaroids({ active }: { active: boolean }) {
   const nestDesigns = useMemo(() => polaroidNestDesigns(itemsRef.current, settings), [layoutKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const layout = useMemo(() => nest(nestDesigns, sheetS), [nestDesigns, sheetS])
   const [overrides, setOverrides] = useState<Overrides>({})
-  const lastKey = useRef(layoutKey)
+  // any edit to a polaroid (crop, caption, theme, size, copies…) or to the sheet re-arranges it automatically,
+  // dropping hand-made moves – so an edited polaroid never stays stranded where it was dragged
+  const editKey = JSON.stringify([items, settings])
+  const lastKey = useRef(editKey)
   useEffect(() => {
-    if (lastKey.current !== layoutKey) {
-      lastKey.current = layoutKey
+    if (lastKey.current !== editKey) {
+      lastKey.current = editKey
       setOverrides({})
     }
-  }, [layoutKey])
+  }, [editKey])
   const sheets = useMemo<StickerSheetLayout[]>(
     () => layout.sheets.map((sh) => ({ ...sh, placements: sh.placements.map((p) => (overrides[p.id] ? { ...p, ...overrides[p.id] } : p)) })),
     [layout, overrides],
@@ -617,6 +620,20 @@ function ItemRow(props: {
 
 /* ------------------------------------------------------------------ sheet */
 
+/** True on touch-first devices (phones, tablets): there a drag on the sheet looks around and never moves a polaroid. */
+function useCoarsePointer() {
+  const query = '(pointer: coarse)'
+  const [coarse, setCoarse] = useState(() => typeof matchMedia === 'function' && matchMedia(query).matches)
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return
+    const m = matchMedia(query)
+    const on = () => setCoarse(m.matches)
+    m.addEventListener('change', on)
+    return () => m.removeEventListener('change', on)
+  }, [])
+  return coarse
+}
+
 function SheetPanel(props: {
   job: PolaroidJob
   settings: PolaroidSettings
@@ -631,6 +648,7 @@ function SheetPanel(props: {
 }) {
   const { job, settings, sheets } = props
   const sheetS = useMemo(() => sheetSettings(settings), [settings])
+  const coarse = useCoarsePointer()
   const [sheetIdx, setSheetIdx] = useState(0)
   const views: { value: View; label: ReactNode }[] =
     settings.finish === 'printcut'
@@ -707,6 +725,7 @@ function SheetPanel(props: {
           onMove={(id, x, y) => props.setOverride(id, { x, y })}
           onSelect={props.onSelect}
           noun="polaroid"
+          movable={!coarse}
         />
       ) : (
         <div className="grid flex-1 place-items-center text-white/50">Nothing to place yet – set copies above 0.</div>
@@ -718,7 +737,7 @@ function SheetPanel(props: {
           }`}
         >
           <MousePointerClick size={15} />
-          <span className="lg:hidden">{props.showHint ? 'Tap any polaroid to edit it' : 'Tap a polaroid to edit · drag to move it'}</span>
+          <span className="lg:hidden">{props.showHint ? 'Tap any polaroid to edit it' : 'Tap a polaroid to edit · drag to look around'}</span>
           <span className="hidden lg:inline">{props.showHint ? 'Click any polaroid to edit it' : 'Click a polaroid to edit · drag to move it'}</span>
         </div>
       )}

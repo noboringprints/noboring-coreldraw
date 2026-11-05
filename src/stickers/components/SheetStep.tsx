@@ -183,6 +183,8 @@ export function SheetCanvas(props: {
   /** Called when a piece is clicked (null = empty space). */
   onSelect?: (designId: string | null) => void
   noun?: string
+  /** Pieces can be dragged to new places (default true). When false, dragging always pans the view. */
+  movable?: boolean
 }) {
   const { sheet, settings, visuals, shapes, view, problems } = props
   const W = settings.sheet.widthMm
@@ -193,7 +195,16 @@ export function SheetCanvas(props: {
   const [zoom, setZoom] = useState(1) // css px per mm
   const [pan, setPan] = useState({ x: 0, y: 0 }) // screen position of the sheet's top-left corner
   const [selected, setSelected] = useState<string | null>(null)
-  const drag = useRef<{ kind: 'pan'; sx: number; sy: number; px: number; py: number } | { kind: 'move'; id: string; sx: number; sy: number; x0: number; y0: number } | null>(null)
+  /**
+   * A press on a piece is a TAP (select it) until the pointer travels past `slop`; only then does it become a drag.
+   * Selecting on release – not on press – means a finger that slides a little (or keeps moving once the editor opens)
+   * can never drag a piece by accident.
+   */
+  const drag = useRef<
+    | { kind: 'pan'; sx: number; sy: number; px: number; py: number; id: string | null; slop: number; moved: boolean }
+    | { kind: 'move'; id: string; sx: number; sy: number; x0: number; y0: number; px: number; py: number; slop: number; moved: boolean }
+    | null
+  >(null)
 
   useEffect(() => {
     const el = host.current
@@ -315,12 +326,12 @@ export function SheetCanvas(props: {
         const sy = e.clientY - r.top
         const id = hit(sx, sy)
         setSelected(id)
-        props.onSelect?.(id ? (sheet.placements.find((q) => q.id === id)?.designId ?? null) : null)
         ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-        if (id) {
+        const slop = e.pointerType === 'mouse' ? 4 : 12 // px before a press counts as a drag
+        if (id && props.movable !== false) {
           const p = sheet.placements.find((q) => q.id === id)!
-          drag.current = { kind: 'move', id, sx, sy, x0: p.x, y0: p.y }
-        } else drag.current = { kind: 'pan', sx, sy, px: pan.x, py: pan.y }
+          drag.current = { kind: 'move', id, sx, sy, x0: p.x, y0: p.y, px: pan.x, py: pan.y, slop, moved: false }
+        } else drag.current = { kind: 'pan', sx, sy, px: pan.x, py: pan.y, id, slop, moved: false }
       }}
       onPointerMove={(e) => {
         const d = drag.current
@@ -328,13 +339,22 @@ export function SheetCanvas(props: {
         const r = host.current!.getBoundingClientRect()
         const sx = e.clientX - r.left
         const sy = e.clientY - r.top
+        if (!d.moved) {
+          if (Math.hypot(sx - d.sx, sy - d.sy) < d.slop) return
+          d.moved = true
+        }
         if (d.kind === 'pan') setPan({ x: d.px + sx - d.sx, y: d.py + sy - d.sy })
         else {
           const snap = (n: number) => Math.round(n * 4) / 4
           props.onMove(d.id, snap(d.x0 + (sx - d.sx) / zoom), snap(d.y0 + (sy - d.sy) / zoom))
         }
       }}
-      onPointerUp={() => (drag.current = null)}
+      onPointerUp={() => {
+        const d = drag.current
+        drag.current = null
+        // a tap (no drag): select what was pressed, or nothing for empty space
+        if (d && !d.moved) props.onSelect?.(d.id ? (sheet.placements.find((q) => q.id === d.id)?.designId ?? null) : null)
+      }}
       onPointerCancel={() => (drag.current = null)}
     >
       <canvas ref={canvas} className="absolute inset-0 h-full w-full" />
