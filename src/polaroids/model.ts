@@ -97,11 +97,23 @@ export type ThemeId =
   | 'christmas'
   | 'film'
   | 'neon'
+  | 'sunflowers'
+  | 'bows'
+  | 'cherries'
+  | 'kisses'
+  | 'tiny-hearts'
+  | 'oranges'
+  | 'daisies'
+  | 'scallop-bows'
+  | 'leopard'
+  | 'gingham-lilac'
+  | 'gingham-blue'
+  | 'gingham-peach'
 
 export interface ThemeInfo {
   id: ThemeId
   name: string
-  group: 'Plain' | 'Colour' | 'Pattern' | 'Occasion'
+  group: 'Plain' | 'Colour' | 'Cute' | 'Pattern' | 'Occasion'
   /** Frame colour (the main one, for patterns the background). */
   base: string
   /** Default caption colour. */
@@ -128,11 +140,23 @@ export const THEMES: ThemeInfo[] = [
   { id: 'gingham', name: 'Gingham', group: 'Pattern', base: '#ffffff', ink: '#b71c1c', font: 'caveat' },
   { id: 'hearts', name: 'Hearts', group: 'Occasion', base: '#fff0f3', ink: '#c2185b', font: 'dancing' },
   { id: 'stars', name: 'Starry night', group: 'Occasion', base: '#1b2140', ink: '#ffe9a8', font: 'caveat' },
-  { id: 'confetti', name: 'Birthday confetti', group: 'Occasion', base: '#ffffff', ink: '#333333', font: 'marker' },
+  { id: 'confetti', name: 'Confetti', group: 'Occasion', base: '#ffffff', ink: '#333333', font: 'marker' },
   { id: 'wedding', name: 'Wedding gold', group: 'Occasion', base: '#fbf7ee', ink: '#a07c45', font: 'dancing' },
   { id: 'christmas', name: 'Christmas', group: 'Occasion', base: '#b3202a', ink: '#ffffff', font: 'marker' },
   { id: 'film', name: 'Film strip', group: 'Pattern', base: '#111111', ink: '#f2f2f2', font: 'special-elite' },
   { id: 'neon', name: 'Neon glow', group: 'Pattern', base: '#0d0d14', ink: '#ff4fd8', font: 'marker' },
+  { id: 'sunflowers', name: 'Sunflowers', group: 'Cute', base: '#eef1d9', ink: '#5a4210', font: 'caveat' },
+  { id: 'bows', name: 'Pink bows', group: 'Cute', base: '#e6a6b4', ink: '#8e2443', font: 'dancing' },
+  { id: 'cherries', name: 'Cherries', group: 'Cute', base: '#fffaf3', ink: '#b3162f', font: 'caveat' },
+  { id: 'kisses', name: 'Kisses', group: 'Cute', base: '#ffffff', ink: '#c8102e', font: 'dancing' },
+  { id: 'tiny-hearts', name: 'Tiny hearts', group: 'Cute', base: '#ffffff', ink: '#c8102e', font: 'caveat' },
+  { id: 'oranges', name: 'Oranges', group: 'Cute', base: '#fff4e3', ink: '#b85a0e', font: 'caveat' },
+  { id: 'daisies', name: 'Daisies', group: 'Cute', base: '#ddd1ef', ink: '#4b2d7f', font: 'caveat' },
+  { id: 'scallop-bows', name: 'Scallop bows', group: 'Cute', base: '#fffcf4', ink: '#3f66b0', font: 'dancing' },
+  { id: 'leopard', name: 'Leopard', group: 'Pattern', base: '#d8b184', ink: '#2b1a0f', font: 'marker' },
+  { id: 'gingham-lilac', name: 'Lilac check', group: 'Pattern', base: '#ffffff', ink: '#5b3f99', font: 'caveat' },
+  { id: 'gingham-blue', name: 'Blue check', group: 'Pattern', base: '#ffffff', ink: '#2d5ea8', font: 'caveat' },
+  { id: 'gingham-peach', name: 'Peach check', group: 'Pattern', base: '#ffffff', ink: '#b8561c', font: 'caveat' },
 ]
 
 export const themeOf = (id: ThemeId | string): ThemeInfo => THEMES.find((t) => t.id === id) ?? THEMES[0]

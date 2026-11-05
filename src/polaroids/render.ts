@@ -6,6 +6,7 @@
  * The canvas must be (w + 2·bleed) × (h + 2·bleed) mm at `pxPerMm`; the frame (pattern included) runs on into the bleed.
  */
 import { enhancePixels } from './enhance'
+import { drawPrintTheme, scallop } from './motifs'
 import { type FilterId, type PolaroidItem, type ThemeInfo, fontOf, formatOf, photoWindow, placePhoto, themeOf } from './model'
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
@@ -120,7 +121,12 @@ function snowflake(ctx: Ctx2D, x: number, y: number, r: number, rot: number) {
 /* ------------------------------------------------------------------ frame themes */
 
 /** Busy patterns get a soft white plate behind the caption so it stays readable. */
-const PLATE: Partial<Record<ThemeInfo['id'], string>> = { dots: 'rgba(255,255,255,0.88)', stripes: 'rgba(255,255,255,0.9)', gingham: 'rgba(255,255,255,0.9)' }
+const PLATE: Partial<Record<ThemeInfo['id'], string>> = Object.fromEntries(
+  (['dots', 'stripes', 'gingham', 'gingham-lilac', 'gingham-blue', 'gingham-peach', 'sunflowers', 'bows', 'cherries', 'kisses', 'tiny-hearts', 'oranges', 'daisies', 'leopard'] as const).map((id) => [
+    id,
+    'rgba(255,255,255,0.9)',
+  ]),
+)
 
 function drawFrame(ctx: Ctx2D, it: PolaroidItem, t: ThemeInfo, all: Box, win: Box) {
   const rand = rng(`${it.id}|${t.id}`)
@@ -183,12 +189,6 @@ function drawFrame(ctx: Ctx2D, it: PolaroidItem, t: ThemeInfo, all: Box, win: Bo
         ctx.fill()
       }
       ctx.restore()
-      break
-    }
-    case 'gingham': {
-      ctx.fillStyle = 'rgba(214,40,40,0.32)'
-      for (let x = all.x; x < all.x + all.w; x += 6) ctx.fillRect(x, all.y, 3, all.h)
-      for (let y = all.y; y < all.y + all.h; y += 6) ctx.fillRect(all.x, y, all.w, 3)
       break
     }
     case 'hearts': {
@@ -262,12 +262,15 @@ function drawFrame(ctx: Ctx2D, it: PolaroidItem, t: ThemeInfo, all: Box, win: Bo
       break
     }
     default:
+      // gingham and the "cute" prints (sunflowers, bows, cherries…)
+      drawPrintTheme(ctx, t.id, all, rand)
       break
   }
 }
 
 /** Things drawn over the photo edge (after the photo). */
 function drawOverlay(ctx: Ctx2D, t: ThemeInfo, win: Box, k: number) {
+  if (t.id === 'scallop-bows') scallop(ctx, win, '#3f66b0')
   if (t.id === 'wedding') {
     ctx.strokeStyle = '#b8955a'
     ctx.lineWidth = 0.35

@@ -558,7 +558,7 @@ export default function PolaroidEditor(props: {
 
         {/* ---------------- theme */}
         <Section title="Frame theme" icon={<Palette size={15} />} hint="The design around the photo">
-          {(['Plain', 'Colour', 'Pattern', 'Occasion'] as const).map((g) => (
+          {(['Plain', 'Colour', 'Cute', 'Pattern', 'Occasion'] as const).map((g) => (
             <div key={g} className="mb-2">
               <div className="mb-1 text-[11px] font-semibold text-slate-400">{g}</div>
               <div className="grid grid-cols-4 gap-1">
