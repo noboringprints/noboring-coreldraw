@@ -65,13 +65,41 @@ const SEEN_KEY = 'print-ready.polaroids.seen-editor'
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 
-function save(data: BlobPart, name: string, type: string) {
-  const url = URL.createObjectURL(new Blob([data], { type }))
+/** A file download through a link – works in desktop browsers and in Safari / Chrome on phones. */
+function save(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = name
+  a.rel = 'noopener'
+  a.style.display = 'none'
+  document.body.appendChild(a) // Firefox only follows links that are in the page
   a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000)
+}
+
+/**
+ * iPhones and iPads (and many in-app browsers) only allow a download or the share sheet straight from a tap – after
+ * the seconds it takes to build the PDF that permission has run out. So on those, the finished PDF waits for a
+ * second tap: the share sheet ("Save to Files", AirDrop, Mail…) where there is one, else a normal download.
+ */
+const NEEDS_SECOND_TAP =
+  typeof navigator !== 'undefined' &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) || /Android/.test(navigator.userAgent))
+
+async function saveOrShare(blob: Blob, name: string) {
+  const file = new File([blob], name, { type: blob.type })
+  if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: name })
+      return
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return // closed the share sheet
+      // anything else: fall through to a plain download
+    }
+  }
+  save(blob, name)
 }
 
 export default function PolaroidApp({ active }: { active: boolean }) {
@@ -836,6 +864,7 @@ function DownloadBar(props: { job: PolaroidJob; settings: PolaroidSettings; shee
   const [busy, setBusy] = useState<ExportMode | null>(null)
   const [progress, setProgress] = useState<[number, number] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [ready, setReady] = useState<{ blob: Blob; name: string; url: string } | null>(null)
   const date = new Date().toISOString().slice(0, 10)
   const base = `polaroids_${date}_${settings.sheet.name.replace(/[^\w]+/g, '')}_${sheets.length}-sheet${sheets.length === 1 ? '' : 's'}`
   const shapes = useMemo(() => Object.fromEntries(job.items.map((it) => [it.id, polaroidShape(it, settings)])), [job.items, settings])
@@ -845,9 +874,20 @@ function DownloadBar(props: { job: PolaroidJob; settings: PolaroidSettings; shee
   })
   const pc = settings.finish === 'printcut'
 
+  // a ready PDF belongs to the job as it was – any change makes it stale
+  const readyKey = useMemo(() => JSON.stringify([job.items, settings, sheets.length]), [job.items, settings, sheets.length])
+  useEffect(() => {
+    setReady((r) => {
+      if (r) URL.revokeObjectURL(r.url)
+      return null
+    })
+  }, [readyKey])
+
+  const missing = job.items.filter((it) => !job.photos[it.photoId]).length
   const pdf = async (mode: ExportMode) => {
     setBusy(mode)
     setError(null)
+    setReady(null)
     const cache = new Map<string, ImageBitmap>()
     try {
       await loadCaptionFonts()
@@ -858,7 +898,9 @@ function DownloadBar(props: { job: PolaroidJob; settings: PolaroidSettings; shee
         title: name,
         onProgress: (d, t) => setProgress([d, t]),
       })
-      save(bytes as BlobPart, name, 'application/pdf')
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+      if (NEEDS_SECOND_TAP) setReady({ blob, name, url: URL.createObjectURL(blob) })
+      else save(blob, name)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -867,7 +909,7 @@ function DownloadBar(props: { job: PolaroidJob; settings: PolaroidSettings; shee
       setProgress(null)
     }
   }
-  const disabled = !!busy || !sheets.length
+  const disabled = !!busy || !sheets.length || job.loading > 0 || missing > 0
 
   return (
     <div className="sticky bottom-0 z-20 border-t border-slate-200/70 bg-white/85 backdrop-blur-xl">
@@ -875,6 +917,14 @@ function DownloadBar(props: { job: PolaroidJob; settings: PolaroidSettings; shee
         <div className="w-full min-w-0 truncate text-xs text-slate-500 sm:w-auto sm:flex-1 sm:text-sm">
           {error ? (
             <span className="text-red-600">Could not make the PDF: {error}</span>
+          ) : job.loading > 0 ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Loader2 size={14} className="animate-spin" /> Loading photos – the PDF is ready to make in a moment…
+            </span>
+          ) : missing > 0 ? (
+            <span className="text-amber-700">{plural(missing, 'polaroid')} lost its photo – remove it or add the photo again.</span>
+          ) : ready ? (
+            <span className="font-medium text-emerald-700">PDF ready – tap Save PDF to keep it.</span>
           ) : progress ? (
             <span className="inline-flex items-center gap-1.5">
               <Loader2 size={14} className="animate-spin" /> Rendering polaroids at 300 DPI… {Math.min(progress[0] + 1, progress[1])} of {progress[1]}
@@ -899,10 +949,21 @@ function DownloadBar(props: { job: PolaroidJob; settings: PolaroidSettings; shee
             </button>
           </>
         )}
-        <button className="btn-primary btn-lg ml-auto flex-1 sm:flex-none" disabled={disabled} onClick={() => void pdf(pc ? 'print-cut' : 'print')}>
-          {busy ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-          {busy ? 'Making PDF…' : pc ? 'Download print & cut PDF' : 'Download PDF'}
-        </button>
+        {ready ? (
+          <>
+            <a className="btn-ghost px-3 text-xs" href={ready.url} target="_blank" rel="noopener" title="Opens the PDF in a new tab">
+              Open
+            </a>
+            <button className="btn-primary btn-lg ml-auto flex-1 sm:flex-none" onClick={() => void saveOrShare(ready.blob, ready.name)}>
+              <Download size={18} /> Save PDF
+            </button>
+          </>
+        ) : (
+          <button className="btn-primary btn-lg ml-auto flex-1 sm:flex-none" disabled={disabled} onClick={() => void pdf(pc ? 'print-cut' : 'print')}>
+            {busy ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+            {busy ? 'Making PDF…' : pc ? 'Download print & cut PDF' : 'Download PDF'}
+          </button>
+        )}
       </div>
     </div>
   )
