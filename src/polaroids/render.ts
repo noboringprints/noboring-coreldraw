@@ -5,6 +5,7 @@
  *
  * The canvas must be (w + 2·bleed) × (h + 2·bleed) mm at `pxPerMm`; the frame (pattern included) runs on into the bleed.
  */
+import { enhancePixels } from './enhance'
 import { type FilterId, type PolaroidItem, type ThemeInfo, fontOf, formatOf, photoWindow, placePhoto, themeOf } from './model'
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
@@ -361,6 +362,16 @@ function drawPhoto(ctx: Ctx2D, it: PolaroidItem, photo: PhotoSource, win: Box, b
   ctx.restore()
 }
 
+/** The part of the window the photo actually covers (all of it, unless zoomed out past the photo edge), local mm. */
+function visiblePhoto(it: PolaroidItem, photo: PhotoSource, win: Box): Box {
+  const p = placePhoto(it.crop, photo.pxW, photo.pxH, win.w, win.h)
+  const x0 = Math.max(0, -p.ox * p.scale)
+  const y0 = Math.max(0, -p.oy * p.scale)
+  const x1 = Math.min(win.w, (p.rw - p.ox) * p.scale)
+  const y1 = Math.min(win.h, (p.rh - p.oy) * p.scale)
+  return { x: win.x + x0, y: win.y + y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) }
+}
+
 const clamp255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v)
 
 /** Colour filter on a pixel rectangle (device pixels). */
@@ -506,19 +517,22 @@ export function drawPolaroid(ctx: Ctx2D, it: PolaroidItem, o: DrawOptions) {
   if (o.photo) drawPhoto(ctx, it, o.photo, win, t.recolorable && it.frameColor ? it.frameColor : t.base)
   else standIn(ctx, win)
 
-  // colour filter on the photo's pixels only (inside the window, so the frame is untouched)
-  if (it.filter !== 'none') {
-    const x0 = Math.ceil((b + win.x) * k)
-    const y0 = Math.ceil((b + win.y) * k)
-    const x1 = Math.floor((b + win.x + win.w) * k)
-    const y1 = Math.floor((b + win.y + win.h) * k)
+  // enhance, then the colour look – on the photo's own pixels only (not the frame, not the backdrop when zoomed out)
+  const enhance = it.enhance ?? 'off'
+  if (o.photo && (it.filter !== 'none' || enhance !== 'off')) {
+    const v = visiblePhoto(it, o.photo, win)
+    const x0 = Math.ceil((b + v.x) * k)
+    const y0 = Math.ceil((b + v.y) * k)
+    const x1 = Math.floor((b + v.x + v.w) * k)
+    const y1 = Math.floor((b + v.y + v.h) * k)
     if (x1 > x0 && y1 > y0) {
       const img = ctx.getImageData(x0, y0, x1 - x0, y1 - y0)
+      enhancePixels(img.data, img.width, img.height, enhance, k)
       applyFilter(img.data, it.filter)
       ctx.putImageData(img, x0, y0)
     }
-    if (it.filter === 'vintage') vignette(ctx, win)
   }
+  if (it.filter === 'vintage') vignette(ctx, win)
   // a hair of shade where the photo meets the frame, like the real film
   ctx.strokeStyle = 'rgba(0,0,0,0.08)'
   ctx.lineWidth = 0.12

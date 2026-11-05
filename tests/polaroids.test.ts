@@ -21,6 +21,7 @@ import {
   sheetSettings,
 } from '../src/polaroids/model'
 import { type Ctx2D, applyFilter, canvasSize, drawPolaroid } from '../src/polaroids/render'
+import { enhancePixels } from '../src/polaroids/enhance'
 
 const crop: PolaroidSettings = { ...DEFAULT_POLAROID_SETTINGS }
 const printcut: PolaroidSettings = { ...DEFAULT_POLAROID_SETTINGS, finish: 'printcut', gapMm: 4, cornerMm: 3 }
@@ -221,5 +222,54 @@ describe('PDF', () => {
     let calls = 0
     await buildPolaroidPdf(r.sheets, items, printcut, s, async (it, b) => (calls++, renderer(it, b)), { mode: 'cut' })
     expect(calls).toBe(0)
+  })
+})
+
+describe('enhance', () => {
+  /** A dull, low-contrast gradient photo. */
+  function dull(w = 300, h = 200) {
+    const c = createCanvas(w, h)
+    const ctx = c.getContext('2d')
+    const g = ctx.createLinearGradient(0, 0, w, 0)
+    g.addColorStop(0, '#6e665c')
+    g.addColorStop(1, '#9a9286')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, w, h)
+    return c
+  }
+  const spread = (d: Uint8ClampedArray) => {
+    let lo = 255
+    let hi = 0
+    for (let i = 0; i < d.length; i += 4) {
+      lo = Math.min(lo, d[i + 1])
+      hi = Math.max(hi, d[i + 1])
+    }
+    return hi - lo
+  }
+  it('off leaves the pixels alone; auto and strong add contrast, strong more', () => {
+    const src = dull().getContext('2d').getImageData(0, 0, 300, 200).data
+    const run = (lvl: 'off' | 'auto' | 'strong') => {
+      const d = new Uint8ClampedArray(src)
+      enhancePixels(d, 300, 200, lvl, 6)
+      return d
+    }
+    expect([...run('off')]).toEqual([...src])
+    expect(spread(run('auto'))).toBeGreaterThan(spread(src) * 1.3)
+    expect(spread(run('strong'))).toBeGreaterThan(spread(run('auto')))
+  })
+  it('only the photo is enhanced – never the frame, nor the backdrop when zoomed out', () => {
+    const k = 6
+    const base = item('a', { enhance: 'strong' })
+    const zoomedOut = { ...base, crop: { ...base.crop, zoom: 0.1 } } // whole photo, frame colour above and below it
+    const c = render(zoomedOut, k, 0, dull(400, 100))
+    const win = photoWindow(formatOf(base))
+    expect(px(c, 2, 2).slice(0, 3)).toEqual([0xfb, 0xfb, 0xf8]) // frame
+    expect(px(c, (win.x + win.w / 2) * k, (win.y + 2) * k).slice(0, 3)).toEqual([0xfb, 0xfb, 0xf8]) // backdrop above the photo
+  })
+  it('a missing enhance (older saved jobs) means off', () => {
+    const { enhance: _e, ...old } = item('a')
+    const a = render(old as PolaroidItem, 4, 0, dull())
+    const b = render(item('a', { enhance: 'off' }), 4, 0, dull())
+    expect([...a.getContext('2d').getImageData(0, 0, a.width, a.height).data]).toEqual([...b.getContext('2d').getImageData(0, 0, b.width, b.height).data])
   })
 })

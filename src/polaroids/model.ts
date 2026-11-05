@@ -9,6 +9,7 @@
  * "Local space" of a polaroid = its trim box [0, w] × [0, h], mm, origin top-left, y DOWN (canvas order).
  */
 import { MM_PER_INCH } from '../config/defaults'
+import type { EnhanceLevel } from './enhance'
 import { round3 } from '../lib/geometry'
 import { STICKER_SHEETS, type StickerSheet, type StickerSettings } from '../stickers/config'
 import { DEFAULT_PRINTCUT_SETTINGS, loadPrintCutSettings } from '../printcut/model'
@@ -210,6 +211,8 @@ export interface PolaroidItem {
   /** Unset = the theme's colour (plain themes only). */
   frameColor?: string
   filter: FilterId
+  /** Makes the photo clearer when drawn – the uploaded file itself is never changed. Unset = off. */
+  enhance?: EnhanceLevel
 }
 
 /** What a new photo starts with (the last choices are remembered). */
@@ -218,9 +221,10 @@ export interface NewItemDefaults {
   theme: ThemeId
   filter: FilterId
   font: FontId
+  enhance: EnhanceLevel
 }
 
-export const DEFAULT_NEW: NewItemDefaults = { formatId: 'classic', theme: 'classic', filter: 'none', font: 'caveat' }
+export const DEFAULT_NEW: NewItemDefaults = { formatId: 'classic', theme: 'classic', filter: 'none', font: 'caveat', enhance: 'off' }
 
 export function newItem(id: string, photoId: string, name: string, d: NewItemDefaults): PolaroidItem {
   return {
@@ -234,6 +238,7 @@ export function newItem(id: string, photoId: string, name: string, d: NewItemDef
     caption: { text: '', font: d.font, sizeMm: 6, align: 'center' },
     theme: d.theme,
     filter: d.filter,
+    enhance: d.enhance ?? 'off',
   }
 }
 

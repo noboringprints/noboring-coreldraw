@@ -1,7 +1,15 @@
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   AlignCenter,
+  Check,
+  Crop,
+  Eye,
+  Layers,
+  Palette,
+  Ruler,
+  Sparkles,
+  Type,
   AlignLeft,
   AlignRight,
   Copy,
@@ -18,6 +26,7 @@ import {
   X,
 } from 'lucide-react'
 import { NumberField, Segmented, Stepper } from '../components/ui'
+import { ENHANCE_LEVELS } from './enhance'
 import {
   CUSTOM_FORMAT_ID,
   DEFAULT_CUSTOM,
@@ -67,30 +76,39 @@ export function PolaroidThumb(props: { it: PolaroidItem; photo?: Photo; width: n
 
 const NUDGE_MM = 0.5
 
-/** The polaroid, big: drag the photo to place it, wheel or pinch-zoom to zoom, arrow keys to nudge. */
-function CropCanvas(props: { it: PolaroidItem; photo?: Photo; fontsReady: boolean; onCrop: (c: PhotoCrop) => void }) {
+/** The polaroid, big: drag the photo to place it, wheel or two-finger pinch to zoom, arrow keys to nudge. */
+function CropCanvas(props: { it: PolaroidItem; photo?: Photo; fontsReady: boolean; onCrop: (c: PhotoCrop) => void; compare?: boolean }) {
   const { it, photo } = props
   const host = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
-  const [box, setBox] = useState(0)
+  const [box, setBox] = useState({ w: 0, vh: 800 })
   const [draft, setDraft] = useState<PhotoCrop | null>(null)
   const [dragging, setDragging] = useState(false)
   const drag = useRef<{ sx: number; sy: number; crop: PhotoCrop; scale: number; rw: number; rh: number } | null>(null)
+  /** Fingers on the canvas, for pinch zoom. */
+  const touches = useRef(new Map<number, { x: number; y: number }>())
+  const pinch = useRef<{ d0: number; crop: PhotoCrop } | null>(null)
   const wheelTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const f = formatOf(it)
   const win = photoWindow(f)
-  const shown = useMemo(() => (draft ? { ...it, crop: draft } : it), [it, draft])
+  const shown = useMemo(() => {
+    const x = draft ? { ...it, crop: draft } : it
+    // "compare": the photo exactly as uploaded – no enhance, no colour look
+    return props.compare ? { ...x, enhance: 'off' as const, filter: 'none' as const } : x
+  }, [it, draft, props.compare])
 
   useLayoutEffect(() => {
     const el = host.current
     if (!el) return
-    const ro = new ResizeObserver(() => setBox(el.clientWidth))
+    const measure = () => setBox({ w: el.clientWidth, vh: window.innerHeight })
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
-    setBox(el.clientWidth)
+    measure()
     return () => ro.disconnect()
   }, [])
-  // fit the card in the panel: full width, but never taller than 440 px
-  const cssW = Math.max(120, Math.min(box, (440 * f.widthMm) / f.heightMm))
+  // fit the card in the panel: full width, but never taller than 440 px or half the screen (phones)
+  const maxH = Math.max(220, Math.min(440, box.vh * 0.5))
+  const cssW = Math.max(120, Math.min(box.w, (maxH * f.widthMm) / f.heightMm))
   const cssH = (cssW * f.heightMm) / f.widthMm
   const pxPerCss = cssW / f.widthMm // css px per mm
 
@@ -176,24 +194,52 @@ function CropCanvas(props: { it: PolaroidItem; photo?: Photo; fontsReady: boolea
             const p = place(current())
             if (!p) return
             e.currentTarget.setPointerCapture(e.pointerId)
-            drag.current = { sx: e.clientX, sy: e.clientY, crop: p.crop, scale: p.scale, rw: p.rw, rh: p.rh }
+            touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+            if (touches.current.size === 2) {
+              // second finger: switch from moving to pinch-zooming
+              const [a, b] = [...touches.current.values()]
+              pinch.current = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, crop: p.crop }
+              drag.current = null
+            } else if (touches.current.size === 1) drag.current = { sx: e.clientX, sy: e.clientY, crop: p.crop, scale: p.scale, rw: p.rw, rh: p.rh }
             setDragging(true)
           }}
           onPointerMove={(e) => {
+            if (touches.current.has(e.pointerId)) touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+            const pz = pinch.current
+            if (pz && touches.current.size >= 2) {
+              const [a, b] = [...touches.current.values()]
+              const d = Math.hypot(a.x - b.x, a.y - b.y)
+              setDraft(place({ ...pz.crop, zoom: (pz.crop.zoom * d) / pz.d0 })!.crop)
+              return
+            }
             const d = drag.current
             if (!d) return
             const dx = (e.clientX - d.sx) / pxPerCss
             const dy = (e.clientY - d.sy) / pxPerCss
             setDraft(place({ ...d.crop, cx: d.crop.cx - dx / (d.scale * d.rw), cy: d.crop.cy - dy / (d.scale * d.rh) })!.crop)
           }}
-          onPointerUp={() => {
+          onPointerUp={(e) => {
+            touches.current.delete(e.pointerId)
+            if (touches.current.size > 0) {
+              // one finger lifted after a pinch: carry on moving with the other one, from the zoomed crop
+              const rest = [...touches.current.values()][0]
+              const p = place(draft ?? current())
+              pinch.current = null
+              if (p) drag.current = { sx: rest.x, sy: rest.y, crop: p.crop, scale: p.scale, rw: p.rw, rh: p.rh }
+              if (draft) setDraft(p!.crop)
+              return
+            }
             drag.current = null
+            pinch.current = null
             setDragging(false)
             if (draft) props.onCrop(draft)
             setDraft(null)
           }}
-          onPointerCancel={() => {
+          onPointerCancel={(e) => {
+            touches.current.delete(e.pointerId)
+            if (touches.current.size) return
             drag.current = null
+            pinch.current = null
             setDragging(false)
             setDraft(null)
           }}
@@ -205,11 +251,17 @@ function CropCanvas(props: { it: PolaroidItem; photo?: Photo; fontsReady: boolea
 
 /* ------------------------------------------------------------------ the editor panel */
 
-function Section(props: { title: string; children: ReactNode; right?: ReactNode }) {
+function Section(props: { title: string; hint?: string; icon?: ReactNode; children: ReactNode; right?: ReactNode }) {
   return (
-    <section className="border-t border-slate-100 px-5 py-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="text-xs font-bold tracking-wide text-slate-500 uppercase">{props.title}</h3>
+    <section className="border-t border-slate-100 px-4 py-4 sm:px-5">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2.5">
+          {props.icon && <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">{props.icon}</span>}
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">{props.title}</h3>
+            {props.hint && <p className="text-xs text-slate-500">{props.hint}</p>}
+          </div>
+        </div>
         {props.right}
       </div>
       {props.children}
@@ -268,7 +320,7 @@ export default function PolaroidEditor(props: {
   perSheet?: number
   onClose: () => void
   onFill: () => void
-  onRemember: (patch: Partial<{ formatId: string; theme: PolaroidItem['theme']; filter: PolaroidItem['filter']; font: PolaroidItem['caption']['font'] }>) => void
+  onRemember: (patch: Partial<{ formatId: string; theme: PolaroidItem['theme']; filter: PolaroidItem['filter']; font: PolaroidItem['caption']['font']; enhance: NonNullable<PolaroidItem['enhance']> }>) => void
   onSelect: (id: string | null) => void
   toast: (msg: string) => void
 }) {
@@ -284,10 +336,27 @@ export default function PolaroidEditor(props: {
   const setCaption = (c: Partial<PolaroidItem['caption']>) => set({ caption: { ...it.caption, ...c } })
   const lz = (z: number) => Math.log(z)
   const many = job.items.length > 1
+  const enhance = it.enhance ?? 'off'
+  const changed = enhance !== 'off' || it.filter !== 'none'
+  /** Held down: show the photo exactly as uploaded. */
+  const [compare, setCompare] = useState(false)
+  const hold = {
+    onPointerDown: (e: PointerEvent) => {
+      e.preventDefault()
+      setCompare(true)
+    },
+    onPointerUp: () => setCompare(false),
+    onPointerLeave: () => setCompare(false),
+    onPointerCancel: () => setCompare(false),
+    onKeyDown: (e: KeyboardEvent) => (e.key === ' ' || e.key === 'Enter') && setCompare(true),
+    onKeyUp: () => setCompare(false),
+    onContextMenu: (e: MouseEvent) => e.preventDefault(),
+  }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3">
+      <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2.5 sm:px-5 sm:py-3">
+        <span className="hidden shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-bold text-brand-700 ring-1 ring-brand-200 max-lg:inline">Editing</span>
         <input
           className="min-w-0 flex-1 rounded-lg bg-transparent px-2 py-1 -ml-2 font-semibold text-slate-900 outline-none hover:bg-slate-50 focus:bg-slate-50 focus:ring-2 focus:ring-brand-200"
           value={it.name}
@@ -300,8 +369,9 @@ export default function PolaroidEditor(props: {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* ---------------- photo position */}
-        <div className="bg-[radial-gradient(circle_at_50%_35%,#f8f7fc,#ecebf3)] px-5 pt-5 pb-4">
-          <CropCanvas it={it} photo={photo} fontsReady={props.fontsReady} onCrop={(c) => set({ crop: c })} />
+        <div className="relative bg-[radial-gradient(circle_at_50%_35%,#f8f7fc,#ecebf3)] px-4 pt-4 pb-4 sm:px-5 sm:pt-5">
+          <CropCanvas it={it} photo={photo} fontsReady={props.fontsReady} compare={compare} onCrop={(c) => set({ crop: c })} />
+          {compare && <div className="pointer-events-none absolute top-6 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">Original photo</div>}
           <div className="mt-4 flex items-center gap-2">
             <button className="btn-icon btn-ghost h-8 w-8" aria-label="Zoom out" onClick={() => setCrop({ zoom: Math.max(minZ, zoom / 1.15) })}>
               <Minus size={15} />
@@ -338,7 +408,11 @@ export default function PolaroidEditor(props: {
               </button>
             ))}
           </div>
-          <p className="mt-2 text-center text-xs text-slate-400">Drag the photo to place it · scroll to zoom · arrow keys nudge (Shift = more)</p>
+          <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-xs text-slate-500">
+            <Crop size={13} className="shrink-0 text-brand-500" />
+            <span className="hidden sm:inline">Drag the photo to place it · scroll to zoom · arrow keys nudge</span>
+            <span className="sm:hidden">Drag the photo to place it · pinch with two fingers to zoom</span>
+          </p>
           {dpi !== null && dpi < props.settings.minDpi && (
             <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-600/20">
               <AlertTriangle size={14} className="mt-px shrink-0" />
@@ -349,8 +423,46 @@ export default function PolaroidEditor(props: {
           )}
         </div>
 
+        {/* ---------------- enhance & look */}
+        <Section title="Enhance" icon={<Sparkles size={15} />} hint="Clearer, brighter, sharper – your original photo is never changed">
+          <Segmented
+            full
+            aria-label="Enhance"
+            value={enhance}
+            onChange={(v) => {
+              set({ enhance: v })
+              props.onRemember({ enhance: v })
+            }}
+            options={ENHANCE_LEVELS.map((l) => ({ value: l.id, label: <>{l.id !== 'off' && <Sparkles size={13} />}{l.name}</>, hint: l.hint }))}
+          />
+          <p className="mt-2 text-xs text-slate-500">{ENHANCE_LEVELS.find((l) => l.id === enhance)?.hint}.</p>
+          <div className="mt-4 mb-2 text-sm font-medium text-slate-700">Colour look</div>
+          <div className="flex flex-wrap gap-1.5">
+            {FILTERS.map((x) => (
+              <button
+                key={x.id}
+                onClick={() => {
+                  set({ filter: x.id })
+                  props.onRemember({ filter: x.id })
+                }}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition ${it.filter === x.id ? 'bg-brand-600 text-white ring-brand-600' : 'text-slate-600 ring-slate-200 hover:ring-slate-300'}`}
+              >
+                {x.name}
+              </button>
+            ))}
+          </div>
+          <button
+            {...hold}
+            disabled={!changed || !photo}
+            className={`btn-secondary mt-4 w-full touch-none select-none ${compare ? 'bg-slate-100 ring-slate-300' : ''}`}
+            title="Hold to see the photo as uploaded"
+          >
+            <Eye size={15} /> {changed ? (compare ? 'Showing the original…' : 'Hold to compare with the original') : 'Nothing changed yet'}
+          </button>
+        </Section>
+
         {/* ---------------- size */}
-        <Section title="Size" right={<span className="text-xs text-slate-400 tabular-nums">{fmtMm(f.widthMm)} × {fmtMm(f.heightMm)} mm</span>}>
+        <Section title="Size" icon={<Ruler size={15} />} hint="Finished size of the polaroid" right={<span className="text-xs text-slate-400 tabular-nums">{fmtMm(f.widthMm)} × {fmtMm(f.heightMm)} mm</span>}>
           <div className="grid grid-cols-3 gap-1.5">
             {[...FORMATS, { id: CUSTOM_FORMAT_ID, name: 'Custom', hint: 'Your own size and borders', widthMm: 0, heightMm: 0 }].map((x) => {
               const on = it.formatId === x.id
@@ -397,7 +509,7 @@ export default function PolaroidEditor(props: {
         </Section>
 
         {/* ---------------- caption */}
-        <Section title="Caption">
+        <Section title="Caption" icon={<Type size={15} />} hint="Written on the bottom strip – leave empty for none">
           <textarea
             rows={2}
             value={it.caption.text}
@@ -445,7 +557,7 @@ export default function PolaroidEditor(props: {
         </Section>
 
         {/* ---------------- theme */}
-        <Section title="Theme">
+        <Section title="Frame theme" icon={<Palette size={15} />} hint="The design around the photo">
           {(['Plain', 'Colour', 'Pattern', 'Occasion'] as const).map((g) => (
             <div key={g} className="mb-2">
               <div className="mb-1 text-[11px] font-semibold text-slate-400">{g}</div>
@@ -475,26 +587,8 @@ export default function PolaroidEditor(props: {
           )}
         </Section>
 
-        {/* ---------------- filter */}
-        <Section title="Photo look">
-          <div className="flex flex-wrap gap-1.5">
-            {FILTERS.map((x) => (
-              <button
-                key={x.id}
-                onClick={() => {
-                  set({ filter: x.id })
-                  props.onRemember({ filter: x.id })
-                }}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition ${it.filter === x.id ? 'bg-brand-600 text-white ring-brand-600' : 'text-slate-600 ring-slate-200 hover:ring-slate-300'}`}
-              >
-                {x.name}
-              </button>
-            ))}
-          </div>
-        </Section>
-
         {/* ---------------- copies & sheet */}
-        <Section title="Copies">
+        <Section title="Copies" icon={<Layers size={15} />} hint="How many of this polaroid to print">
           <div className="flex flex-wrap items-center gap-3">
             <Stepper value={it.copies} min={0} onChange={(copies) => set({ copies })} label="Copies" />
             <button className="btn-secondary px-3 py-2 text-xs" onClick={props.onFill} title="Add copies until the last sheet is full">
@@ -519,12 +613,13 @@ export default function PolaroidEditor(props: {
 
         {/* ---------------- all photos */}
         {many && (
-          <Section title="Use for all photos">
+          <Section title="Use for all photos" icon={<Wand2 size={15} />} hint="Copy this polaroid's settings to every photo">
             <div className="grid grid-cols-2 gap-1.5">
               {(
                 [
                   ['This size', () => job.updateAll(() => ({ formatId: it.formatId, custom: it.custom }))],
                   ['This theme', () => job.updateAll(() => ({ theme: it.theme, frameColor: it.frameColor }))],
+                  ['This enhance', () => job.updateAll(() => ({ enhance }))],
                   ['This photo look', () => job.updateAll(() => ({ filter: it.filter }))],
                   ['This caption style', () => job.updateAll((o) => ({ caption: { ...it.caption, text: o.caption.text } }))],
                   ['This caption text', () => job.updateAll((o) => ({ caption: { ...o.caption, text: it.caption.text } }))],
@@ -560,6 +655,11 @@ export default function PolaroidEditor(props: {
             <Trash2 size={14} /> Remove
           </button>
         </div>
+      </div>
+      <div className="border-t border-slate-200/70 bg-white/90 px-4 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+        <button className="btn-primary w-full" onClick={props.onClose}>
+          <Check size={16} /> Done – back to photos
+        </button>
       </div>
     </div>
   )

@@ -1,5 +1,30 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileX2, ImagePlus, Loader2, MousePointerClick, Scissors, SlidersHorizontal, Trash2, Undo2, UploadCloud } from 'lucide-react'
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Copy,
+  Crop,
+  Download,
+  FileX2,
+  ImagePlus,
+  Images,
+  LayoutGrid,
+  Loader2,
+  MousePointerClick,
+  Palette,
+  Pencil,
+  Scissors,
+  SlidersHorizontal,
+  Sparkles,
+  Trash2,
+  Type,
+  Undo2,
+  UploadCloud,
+  X,
+} from 'lucide-react'
 import { Logo } from '../components/Header'
 import { Drawer, Notice, NumberField, Segmented, Stepper, ToastHost, useToast } from '../components/ui'
 import DarkToggle from '../stickers/components/DarkToggle'
@@ -35,6 +60,8 @@ const ACCEPT = 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp'
 const PREVIEW_PX_PER_MM = 6
 type View = 'both' | 'print' | 'cut'
 type Overrides = Record<string, { x: number; y: number } | undefined>
+
+const SEEN_KEY = 'print-ready.polaroids.seen-editor'
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 
@@ -161,6 +188,27 @@ function Polaroids({ active }: { active: boolean }) {
   }
 
   const sel = items.find((it) => it.id === selected)
+  // first-time guidance until a photo has been opened once
+  const [seenEditor, setSeenEditor] = useState(() => {
+    try {
+      return localStorage.getItem(SEEN_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const open = (id: string | null) => {
+    setSelected(id)
+    if (id && !seenEditor) {
+      setSeenEditor(true)
+      try {
+        localStorage.setItem(SEEN_KEY, '1')
+      } catch {
+        /* fine */
+      }
+    }
+  }
+  // phones show one panel at a time
+  const [tab, setTab] = useState<'photos' | 'sheet'>('photos')
 
   return (
     <div className="flex h-full flex-col">
@@ -176,22 +224,24 @@ function Polaroids({ active }: { active: boolean }) {
         }}
       />
       <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/80 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-[1800px] items-center gap-4 px-5">
+        <div className="mx-auto flex h-14 max-w-[1800px] items-center gap-2 px-3 sm:h-16 sm:gap-4 sm:px-5">
           <div className="flex items-center gap-3">
             <Logo />
             <span className="hidden rounded-full bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-700 ring-1 ring-sky-600/20 ring-inset sm:inline">Polaroids</span>
           </div>
-          <div className="min-w-0 flex-1 truncate text-center text-sm text-slate-500">
+          <div className="hidden min-w-0 flex-1 truncate text-center text-sm text-slate-500 md:block">
             {items.length > 0 && (
               <>
                 <b className="text-slate-800">{plural(total, 'polaroid')}</b> on <b className="text-slate-800">{plural(sheets.length, 'sheet')}</b> · {settings.sheet.name}
               </>
             )}
           </div>
+          <span className="flex-1 md:hidden" />
           {items.length > 0 && (
             <button
-              className="btn-ghost px-3"
+              className="btn-ghost px-2.5 sm:px-3"
               title="Start a new job (removes all photos)"
+              aria-label="New job"
               onClick={() => {
                 if (confirm('Start a new job? All photos will be removed.')) {
                   job.clear()
@@ -202,13 +252,42 @@ function Polaroids({ active }: { active: boolean }) {
               <FileX2 size={16} /> <span className="hidden lg:inline">New job</span>
             </button>
           )}
-          <button onClick={() => setShowSettings(true)} className="btn-secondary rounded-full py-2 pr-3 pl-3.5" title="Sheet settings">
+          <button onClick={() => setShowSettings(true)} className="btn-secondary rounded-full py-2 pr-3 pl-3.5" title="Sheet settings" aria-label="Sheet settings">
             <span className="hidden text-slate-500 lg:inline">
               {settings.sheet.name} · {FINISHES.find((x) => x.value === settings.finish)?.short}
             </span>
+            <span className="text-xs font-semibold text-slate-600 lg:hidden">Sheet</span>
             <SlidersHorizontal size={16} />
           </button>
         </div>
+        {items.length > 0 && (
+          <div className="border-t border-slate-100 px-3 py-2 lg:hidden">
+            <Segmented
+              full
+              aria-label="Show"
+              value={tab}
+              onChange={setTab}
+              options={[
+                {
+                  value: 'photos',
+                  label: (
+                    <>
+                      <Images size={15} /> Photos <span className="text-slate-400">{items.length}</span>
+                    </>
+                  ),
+                },
+                {
+                  value: 'sheet',
+                  label: (
+                    <>
+                      <LayoutGrid size={15} /> Sheet preview <span className="text-slate-400">{sheets.length}</span>
+                    </>
+                  ),
+                },
+              ]}
+            />
+          </div>
+        )}
       </header>
 
       <main className="min-h-0 flex-1">
@@ -216,8 +295,9 @@ function Polaroids({ active }: { active: boolean }) {
           <Empty restored={job.restored} onPick={pick} errors={job.errors} />
         ) : (
           <div className="flex h-full min-h-0 flex-col lg:flex-row">
-            <aside className="w-full shrink-0 overflow-y-auto border-r border-slate-200/70 bg-white px-3 py-3 lg:w-[300px]">
-              <button className="btn-secondary mb-3 w-full border-dashed" onClick={pick}>
+            <aside className={`${tab === 'photos' ? 'flex' : 'hidden'} min-h-0 w-full flex-1 flex-col overflow-y-auto border-r border-slate-200/70 bg-white px-3 py-3 lg:flex lg:w-[300px] lg:flex-none lg:shrink-0`}>
+              {!seenEditor && <EditHint />}
+              <button className="btn-secondary mb-3 w-full shrink-0 border-dashed" onClick={pick}>
                 <ImagePlus size={16} /> Add photos
               </button>
               {job.loading > 0 && (
@@ -242,22 +322,29 @@ function Polaroids({ active }: { active: boolean }) {
                     first={i === 0}
                     last={i === items.length - 1}
                     on={selected === it.id}
-                    onOpen={() => setSelected(selected === it.id ? null : it.id)}
+                    pulse={!seenEditor && i === 0}
+                    onOpen={() => open(selected === it.id ? null : it.id)}
                   />
                 ))}
               </div>
             </aside>
-            <SheetPanel
-              job={job}
-              settings={settings}
-              sheets={sheets}
-              fontsReady={fontsReady}
-              moved={Object.values(overrides).some(Boolean)}
-              setOverride={(id, o) => setOverrides((m) => ({ ...m, [id]: o }))}
-              resetOverrides={() => setOverrides({})}
-              onSelect={(id) => id && setSelected(id)}
-            />
-            <aside className="w-full shrink-0 border-l border-slate-200/70 bg-white lg:w-[400px]">
+            <div className={`${tab === 'sheet' ? 'flex' : 'hidden'} min-h-0 flex-1 lg:flex`}>
+              <SheetPanel
+                job={job}
+                settings={settings}
+                sheets={sheets}
+                fontsReady={fontsReady}
+                showHint={!seenEditor}
+                moved={Object.values(overrides).some(Boolean)}
+                setOverride={(id, o) => setOverrides((m) => ({ ...m, [id]: o }))}
+                resetOverrides={() => setOverrides({})}
+                onSelect={(id) => id && open(id)}
+              />
+            </div>
+            {/* the editor: a column on big screens, full screen on phones */}
+            <aside
+              className={`${sel ? 'fixed inset-0 z-40 flex animate-fade-up' : 'hidden'} flex-col bg-white lg:static lg:z-auto lg:flex lg:w-[400px] lg:shrink-0 lg:animate-none lg:border-l lg:border-slate-200/70`}
+            >
               {sel ? (
                 <PolaroidEditor
                   key={sel.id}
@@ -270,17 +357,34 @@ function Polaroids({ active }: { active: boolean }) {
                   onClose={() => setSelected(null)}
                   onFill={() => fill(sel)}
                   onRemember={remember}
-                  onSelect={setSelected}
+                  onSelect={open}
                   toast={toast}
                 />
               ) : (
                 <div className="grid h-full place-items-center p-8 text-center">
                   <div>
-                    <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600">
+                    <span className="mx-auto grid h-14 w-14 animate-pulse place-items-center rounded-2xl bg-brand-50 text-brand-600">
                       <MousePointerClick size={26} />
                     </span>
-                    <div className="mt-4 font-semibold text-slate-800">Pick a photo to edit</div>
-                    <p className="mt-1 text-sm text-slate-500">Crop and position it, add a caption, choose a size, a theme and a photo look.</p>
+                    <div className="mt-4 text-lg font-semibold text-slate-800">Click a photo to edit it</div>
+                    <p className="mt-1 text-sm text-slate-500">Pick one from the list on the left, or click a polaroid on the sheet.</p>
+                    <ul className="mx-auto mt-5 max-w-[16rem] space-y-2 text-left text-sm text-slate-600">
+                      {(
+                        [
+                          [Crop, 'Crop & position the photo'],
+                          [Sparkles, 'Enhance it – clearer & brighter'],
+                          [Type, 'Write a caption'],
+                          [Palette, 'Pick a size and a frame theme'],
+                        ] as const
+                      ).map(([Icon, text]) => (
+                        <li key={text} className="flex items-center gap-2.5">
+                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                            <Icon size={14} />
+                          </span>
+                          {text}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
               )}
@@ -331,10 +435,10 @@ export function PolaroidArt() {
 function Empty(props: { restored: boolean; onPick: () => void; errors: string[] }) {
   if (!props.restored) return <div className="grid h-full place-items-center text-slate-400">Loading…</div>
   return (
-    <div className="mx-auto w-full max-w-3xl animate-fade-up px-5 py-12">
+    <div className="mx-auto h-full w-full max-w-3xl animate-fade-up overflow-y-auto px-4 py-8 sm:px-5 sm:py-12">
       <button
         onClick={props.onPick}
-        className="card group flex w-full flex-col items-center border-2 border-dashed border-slate-200 px-6 py-12 text-center transition hover:border-brand-300 hover:bg-brand-50/30"
+        className="card group flex w-full flex-col items-center border-2 border-dashed border-slate-200 px-5 py-8 text-center sm:px-6 sm:py-12 transition hover:border-brand-300 hover:bg-brand-50/30"
       >
         <span className="h-32 w-44">
           <PolaroidArt />
@@ -348,6 +452,27 @@ function Empty(props: { restored: boolean; onPick: () => void; errors: string[] 
         </span>
         <span className="mt-3 text-xs text-slate-400">JPG, PNG or WebP · many at once</span>
       </button>
+      <ol className="mt-6 grid gap-3 sm:grid-cols-3">
+        {(
+          [
+            [ImagePlus, 'Add photos', 'Each one becomes a polaroid.'],
+            [Pencil, 'Tap a photo to edit', 'Crop, enhance, caption, size and theme.'],
+            [Download, 'Download the PDF', 'Laid out on the sheet, ready to print and cut.'],
+          ] as const
+        ).map(([Icon, title, text], i) => (
+          <li key={title} className="flex items-start gap-3 rounded-2xl bg-white p-4 ring-1 ring-slate-200/70">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
+              <Icon size={17} />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-slate-800">
+                {i + 1}. {title}
+              </span>
+              <span className="block text-xs text-slate-500">{text}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
       {props.errors.map((e) => (
         <div key={e} className="mt-3">
           <Notice>{e}</Notice>
@@ -369,7 +494,47 @@ function Empty(props: { restored: boolean; onPick: () => void; errors: string[] 
 
 /* ------------------------------------------------------------------ list */
 
-function ItemRow(props: { it: PolaroidItem; photo?: Photo; job: PolaroidJob; settings: PolaroidSettings; fontsReady: boolean; first: boolean; last: boolean; on: boolean; onOpen: () => void }) {
+/** First-time guidance at the top of the photo list. */
+function EditHint() {
+  const [hidden, setHidden] = useState(false)
+  if (hidden) return null
+  return (
+    <div className="relative mb-3 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 p-4 text-white shadow-[0_8px_24px_rgb(91_47_245/0.3)]">
+      <button className="absolute top-2 right-2 rounded-full p-1 text-white/70 hover:bg-white/15 hover:text-white" onClick={() => setHidden(true)} aria-label="Hide tip">
+        <X size={14} />
+      </button>
+      <div className="flex items-center gap-2 font-semibold">
+        <MousePointerClick size={18} className="animate-bounce" /> <span className="lg:hidden">Tap a photo to edit it</span>
+        <span className="hidden lg:inline">Click a photo to edit it</span>
+      </div>
+      <ol className="mt-2 space-y-1 text-sm text-white/85">
+        <li>
+          <b className="text-white">1.</b> Crop, enhance, add a caption & theme
+        </li>
+        <li>
+          <b className="text-white">2.</b> Set how many copies
+        </li>
+        <li>
+          <b className="text-white">3.</b> Download the PDF at the bottom
+        </li>
+      </ol>
+    </div>
+  )
+}
+
+function ItemRow(props: {
+  it: PolaroidItem
+  photo?: Photo
+  job: PolaroidJob
+  settings: PolaroidSettings
+  fontsReady: boolean
+  first: boolean
+  last: boolean
+  on: boolean
+  /** Draw attention to this row (first-time guidance). */
+  pulse?: boolean
+  onOpen: () => void
+}) {
   const { it, photo, job } = props
   const f = formatOf(it)
   const dpi = photo ? photoDpi(it, photo.pxW, photo.pxH) : null
@@ -377,39 +542,70 @@ function ItemRow(props: { it: PolaroidItem; photo?: Photo; job: PolaroidJob; set
   useEffect(() => {
     if (props.on) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [props.on])
+  const tags = [f.name, it.enhance && it.enhance !== 'off' ? 'enhanced' : null, it.caption.text ? `“${it.caption.text.split('\n')[0]}”` : null].filter(Boolean)
   return (
     <div
       ref={ref}
+      role="button"
+      tabIndex={0}
+      aria-label={`Edit ${it.name}`}
       onClick={props.onOpen}
-      className={`group flex cursor-pointer items-center gap-3 rounded-2xl p-2 transition ${props.on ? 'bg-brand-50 ring-2 ring-brand-500' : 'hover:bg-slate-50'}`}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault()
+          props.onOpen()
+        }
+      }}
+      className={`group relative flex cursor-pointer items-center gap-3 rounded-2xl p-2 transition outline-none focus-visible:ring-4 focus-visible:ring-brand-200 ${
+        props.on ? 'bg-brand-50 ring-2 ring-brand-500' : props.pulse ? 'bg-brand-50/60 ring-2 ring-brand-400 ring-offset-2' : 'hover:bg-slate-50'
+      }`}
     >
-      <div className="grid w-14 shrink-0 place-items-center">
+      <div className="relative grid w-14 shrink-0 place-items-center">
         <PolaroidThumb it={it} photo={photo} width={Math.min(52, (64 * f.widthMm) / f.heightMm)} fontsReady={props.fontsReady} />
+        {/* on hover the picture itself says it can be edited */}
+        <span className="pointer-events-none absolute inset-0 hidden place-items-center rounded-sm bg-brand-700/45 text-white opacity-0 transition group-hover:opacity-100 lg:grid">
+          <Pencil size={16} />
+        </span>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-slate-800">{it.name}</div>
-        <div className="truncate text-xs text-slate-500">
-          {f.name} · {it.caption.text ? `“${it.caption.text.split('\n')[0]}”` : 'no caption'}
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{it.name}</div>
+          <span
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition ${
+              props.on ? 'bg-brand-600 text-white' : 'bg-brand-50 text-brand-700 ring-1 ring-brand-200 group-hover:bg-brand-600 group-hover:text-white'
+            }`}
+          >
+            <Pencil size={11} /> {props.on ? 'Editing' : 'Edit'}
+            {props.pulse && !props.on && (
+              <span className="relative -mr-0.5 ml-0.5 flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-500 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-brand-600" />
+              </span>
+            )}
+          </span>
         </div>
+        <div className="truncate text-xs text-slate-500">{tags.join(' · ')}</div>
         <div className="mt-1.5 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <Stepper size="sm" value={it.copies} min={0} onChange={(copies) => job.update(it.id, { copies })} label="Copies" />
+          <span className="text-[11px] text-slate-400">{it.copies === 1 ? 'copy' : 'copies'}</span>
           {dpi !== null && dpi < props.settings.minDpi && (
             <span title={`Prints at about ${dpi} DPI – may look soft`} className="text-amber-500">
               <AlertTriangle size={15} />
             </span>
           )}
           <span className="flex-1" />
-          <span className="flex opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-            <button className="btn-icon h-7 w-7 text-slate-400 hover:bg-white hover:text-slate-700" disabled={props.first} onClick={() => job.move(it.id, -1)} aria-label="Move up">
+          {/* always visible on touch screens; on hover with a mouse */}
+          <span className="flex transition lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
+            <button className="btn-icon hidden h-8 w-8 text-slate-400 hover:bg-white hover:text-slate-700 sm:grid" disabled={props.first} onClick={() => job.move(it.id, -1)} aria-label="Move up">
               <ChevronUp size={14} />
             </button>
-            <button className="btn-icon h-7 w-7 text-slate-400 hover:bg-white hover:text-slate-700" disabled={props.last} onClick={() => job.move(it.id, 1)} aria-label="Move down">
+            <button className="btn-icon hidden h-8 w-8 text-slate-400 hover:bg-white hover:text-slate-700 sm:grid" disabled={props.last} onClick={() => job.move(it.id, 1)} aria-label="Move down">
               <ChevronDown size={14} />
             </button>
-            <button className="btn-icon h-7 w-7 text-slate-400 hover:bg-white hover:text-slate-700" onClick={() => job.duplicate(it.id)} aria-label="Another polaroid of this photo" title="Another polaroid of this photo">
+            <button className="btn-icon h-8 w-8 text-slate-400 hover:bg-white hover:text-slate-700" onClick={() => job.duplicate(it.id)} aria-label="Another polaroid of this photo" title="Another polaroid of this photo">
               <Copy size={14} />
             </button>
-            <button className="btn-icon h-7 w-7 text-slate-400 hover:bg-white hover:text-red-600" onClick={() => job.remove(it.id)} aria-label="Remove">
+            <button className="btn-icon h-8 w-8 text-slate-400 hover:bg-white hover:text-red-600" onClick={() => job.remove(it.id)} aria-label="Remove" title="Remove">
               <Trash2 size={14} />
             </button>
           </span>
@@ -426,6 +622,8 @@ function SheetPanel(props: {
   settings: PolaroidSettings
   sheets: StickerSheetLayout[]
   fontsReady: boolean
+  /** Show the "click a polaroid to edit" tip on the sheet. */
+  showHint?: boolean
   moved: boolean
   setOverride: (id: string, o: { x: number; y: number } | undefined) => void
   resetOverrides: () => void
@@ -477,13 +675,13 @@ function SheetPanel(props: {
   const problems = useMemo(() => (sheet ? layoutProblems(sheet, shapes, sheetS) : { overlapping: new Set<string>(), outside: new Set<string>() }), [sheet, shapes, sheetS])
 
   return (
-    <section className="relative flex min-h-[420px] flex-1 flex-col bg-canvas">
+    <section className="relative flex min-h-[60vh] flex-1 flex-col bg-canvas lg:min-h-[420px]">
       <div className="z-10 flex flex-wrap items-center gap-2 border-b border-white/5 px-3 py-2 text-white/80">
         <div className="flex items-center gap-1">
           <button className="btn-icon text-white/70 hover:bg-white/10" disabled={idx === 0} onClick={() => setSheetIdx(idx - 1)} aria-label="Previous sheet">
             <ChevronLeft size={18} />
           </button>
-          <span className="min-w-[7.5rem] text-center text-sm font-semibold tabular-nums">{sheets.length ? `Sheet ${idx + 1} of ${sheets.length}` : 'No sheets'}</span>
+          <span className="min-w-[6.5rem] text-center text-sm font-semibold tabular-nums">{sheets.length ? `Sheet ${idx + 1} of ${sheets.length}` : 'No sheets'}</span>
           <button className="btn-icon text-white/70 hover:bg-white/10" disabled={idx >= sheets.length - 1} onClick={() => setSheetIdx(idx + 1)} aria-label="Next sheet">
             <ChevronRight size={18} />
           </button>
@@ -492,11 +690,12 @@ function SheetPanel(props: {
         <span className="flex-1" />
         {props.moved && (
           <button className="btn rounded-lg px-2.5 py-1.5 text-xs text-white/80 hover:bg-white/10" onClick={props.resetOverrides}>
-            <Undo2 size={14} /> Re-arrange automatically
+            <Undo2 size={14} /> <span className="hidden sm:inline">Re-arrange automatically</span><span className="sm:hidden">Re-arrange</span>
           </button>
         )}
-        <span className="hidden text-xs text-white/50 2xl:inline">Click a polaroid to edit · drag to move · wheel to zoom</span>
+        <span className="hidden text-xs text-white/50 2xl:inline">Drag to move · wheel to zoom</span>
       </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
       {sheet ? (
         <SheetCanvas
           sheet={sheet}
@@ -512,6 +711,18 @@ function SheetPanel(props: {
       ) : (
         <div className="grid flex-1 place-items-center text-white/50">Nothing to place yet – set copies above 0.</div>
       )}
+      {sheet && (
+        <div
+          className={`pointer-events-none absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap shadow-lift transition sm:text-sm ${
+            props.showHint ? 'animate-bounce bg-white text-brand-700 [animation-duration:2s]' : 'bg-black/40 text-white/80 backdrop-blur'
+          }`}
+        >
+          <MousePointerClick size={15} />
+          <span className="lg:hidden">{props.showHint ? 'Tap any polaroid to edit it' : 'Tap a polaroid to edit · drag to move it'}</span>
+          <span className="hidden lg:inline">{props.showHint ? 'Click any polaroid to edit it' : 'Click a polaroid to edit · drag to move it'}</span>
+        </div>
+      )}
+      </div>
       {(problems.overlapping.size > 0 || problems.outside.size > 0) && (
         <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-amber-950 shadow-lift">
           <AlertTriangle size={16} />
@@ -641,8 +852,8 @@ function DownloadBar(props: { job: PolaroidJob; settings: PolaroidSettings; shee
 
   return (
     <div className="sticky bottom-0 z-20 border-t border-slate-200/70 bg-white/85 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-[1800px] flex-wrap items-center gap-2 px-5 py-3">
-        <div className="min-w-0 flex-1 truncate text-sm text-slate-500">
+      <div className="mx-auto flex max-w-[1800px] flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:px-5 sm:py-3">
+        <div className="w-full min-w-0 truncate text-xs text-slate-500 sm:w-auto sm:flex-1 sm:text-sm">
           {error ? (
             <span className="text-red-600">Could not make the PDF: {error}</span>
           ) : progress ? (
@@ -669,7 +880,7 @@ function DownloadBar(props: { job: PolaroidJob; settings: PolaroidSettings; shee
             </button>
           </>
         )}
-        <button className="btn-primary btn-lg" disabled={disabled} onClick={() => void pdf(pc ? 'print-cut' : 'print')}>
+        <button className="btn-primary btn-lg ml-auto flex-1 sm:flex-none" disabled={disabled} onClick={() => void pdf(pc ? 'print-cut' : 'print')}>
           {busy ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
           {busy ? 'Making PDF…' : pc ? 'Download print & cut PDF' : 'Download PDF'}
         </button>

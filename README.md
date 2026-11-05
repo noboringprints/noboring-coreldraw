@@ -138,16 +138,17 @@ Sheet, marks, gap and bleed: ⚙ top right (defaults: 13 × 19 in, 4 corner dots
 
 ## Polaroids
 
-One screen: photos on the left, the sheet in the middle, the editor on the right, download at the bottom.
+One screen: photos on the left, the sheet in the middle, the editor on the right, download at the bottom. On a phone, *Photos* and *Sheet preview* are tabs and the editor opens full screen (*Done* goes back). Until a photo has been opened once, tips point at what to tap.
 
 1. **Drop photos** (JPG, PNG, WebP – many at once). Each becomes a polaroid in the last-used size and theme. iPhone HEIC photos need exporting as JPG first.
 2. Click a polaroid to edit it:
-   - **Position the photo**: drag it inside the window, scroll (or the slider) to zoom, arrow keys nudge 0.5 mm (Shift = 2 mm). *Fill*, *Whole* (shows the entire photo, frame colour around it), *Centre*, *Rotate* 90° and *Flip*. A warning shows when the photo would print below 150 DPI.
+   - **Position the photo**: drag it inside the window, scroll, pinch (two fingers) or the slider to zoom, arrow keys nudge 0.5 mm (Shift = 2 mm). *Fill*, *Whole* (shows the entire photo, frame colour around it), *Centre*, *Rotate* 90° and *Flip*. A warning shows when the photo would print below 150 DPI.
    - **Size**: Classic 88 × 107 (Polaroid 600 / i-Type), Mini 54 × 86 (Instax Mini), Square 72 × 86, Wide 108 × 86, Go 54 × 66.6, 2 × 3 in, 3 × 4 in, 3.5 × 4.2 in, 4 × 5 in, or **Custom** (width, height and each border).
    - **Caption**: text (Enter for a new line), 6 bundled fonts (handwritten, marker, typewriter, script, retro, clean), size, alignment, colour. It shrinks itself to fit the bottom strip.
    - **Theme**: 20 frames – plain (any colour), pastel, kraft, gradients, polka dots, stripes, gingham, hearts, starry night, confetti, wedding gold, Christmas, film strip, neon.
-   - **Photo look**: Original, Vivid, Warm, Cool, Faded, Vintage, Sepia, B & W, Noir.
-   - **Copies**, **Fill the sheet**, sheet rotation, **Another with this photo** (same photo, different crop or caption), and **Use for all photos** (size / theme / look / caption style / caption text / copies).
+   - **Enhance**: *Off*, *Auto* or *Strong* – auto levels, a little exposure and contrast, vibrance, local contrast and sharpening, sized in mm so the screen and the 300 DPI print match. It is applied when drawing only: the uploaded photo is never changed, and **Hold to compare** shows the original.
+   - **Colour look**: Original, Vivid, Warm, Cool, Faded, Vintage, Sepia, B & W, Noir.
+   - **Copies**, **Fill the sheet**, sheet rotation, **Another with this photo** (same photo, different crop or caption), and **Use for all photos** (size / theme / enhance / look / caption style / caption text / copies).
 3. The sheet updates instantly; drag polaroids to move them. Sizes can be mixed.
 4. **Download PDF** – each polaroid is rendered at 300 DPI from the full-size photo. Finishing (⚙ top right):
    - **Crop marks** (default): marks at every corner for a guillotine, kept out of neighbouring polaroids; 8 mm gap, 1.5 mm bleed.
@@ -271,6 +272,7 @@ tests/printcut.test.ts           product matching, shapes, 13 × 19 layout, expo
 
 src/polaroids/model.ts           formats, themes, fonts, filters, crop maths, sheet settings
 src/polaroids/render.ts          draws one polaroid (Canvas 2D) – same code for the screen and the 300 DPI print
+src/polaroids/enhance.ts         Enhance: levels, exposure, vibrance, clarity, sharpening (pixels only, file untouched)
 src/polaroids/exportPolaroids.ts sheet shapes, crop marks, PDF (via the sticker sheet export)
 src/polaroids/usePolaroidJob.ts  photos + polaroids state, autosave (store.ts, IndexedDB)
 src/polaroids/PolaroidApp.tsx    the Polaroids screen; PolaroidEditor.tsx is the crop / caption / theme panel

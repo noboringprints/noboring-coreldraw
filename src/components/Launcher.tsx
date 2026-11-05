@@ -159,7 +159,7 @@ export default function Launcher(props: { last: Mode | null; onPick: (m: Mode) =
           <Choice
             title="Polaroids"
             tagline="Instant-film prints from photos"
-            points={['Classic, Mini, Square, Wide & inch sizes', 'Crop, position, caption, themes & photo looks', 'Crop marks or print & cut on 13×19']}
+            points={['Classic, Mini, Square, Wide & inch sizes', 'Crop, enhance, caption, themes & photo looks', 'Crop marks or print & cut on 13×19']}
             art={<PolaroidCards />}
             accent="bg-gradient-to-br from-sky-50 to-pink-50"
             last={props.last === 'polaroids'}
