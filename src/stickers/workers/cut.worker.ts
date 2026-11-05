@@ -3,17 +3,10 @@
 import type { CutParams } from '../config'
 import { type CutGeometry, type CutRaster, computeCut, cutFrame } from '../lib/cutline'
 import { type ArtKind, bitmapPixels, decodeBitmap, encodePng } from '../lib/imaging'
-import { type BackgroundGuess, guessBackground, hasTransparency, opaqueBounds } from '../lib/matte'
+import { ANALYSIS_MAX_SIDE, type ArtInfo, artInfoOf } from '../lib/matte'
 import { serve } from './rpc'
 
-export interface ArtInfo {
-  pxW: number
-  pxH: number
-  /** Visible part of the image (pixels, top-left origin). */
-  bbox: { x: number; y: number; w: number; h: number }
-  transparent: boolean
-  background: BackgroundGuess
-}
+export type { ArtInfo }
 
 export interface CutRequest {
   key: string
@@ -27,28 +20,10 @@ export type CutResult = Omit<CutGeometry, 'bleedImage'> & { bleedImage?: { png: 
 
 const arts = new Map<string, { bitmap: ImageBitmap; info: ArtInfo }>()
 
-/** Analysis happens on at most this many pixels (bigger photos are scaled down for it). */
-const ANALYSIS_MAX_SIDE = 4096
-
 serve({
   async load({ key, bytes, kind }: { key: string; bytes: Uint8Array; kind: ArtKind }) {
     const bitmap = await decodeBitmap(bytes, kind)
-    const px = bitmapPixels(bitmap, ANALYSIS_MAX_SIDE)
-    const k = bitmap.width / px.w
-    const b = opaqueBounds(px)
-    if (!b) throw new Error('This image is completely transparent.')
-    // scale the box back to full-resolution pixels (rounded outward)
-    const x0 = Math.max(0, Math.floor(b.x * k))
-    const y0 = Math.max(0, Math.floor(b.y * k))
-    const x1 = Math.min(bitmap.width, Math.ceil((b.x + b.w) * k))
-    const y1 = Math.min(bitmap.height, Math.ceil((b.y + b.h) * k))
-    const info: ArtInfo = {
-      pxW: bitmap.width,
-      pxH: bitmap.height,
-      bbox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 },
-      transparent: hasTransparency(px),
-      background: guessBackground(px),
-    }
+    const info = artInfoOf(bitmapPixels(bitmap, ANALYSIS_MAX_SIDE), bitmap.width, bitmap.height)
     arts.get(key)?.bitmap.close()
     arts.set(key, { bitmap, info })
     return { result: info }

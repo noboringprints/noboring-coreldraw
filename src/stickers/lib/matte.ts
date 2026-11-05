@@ -12,6 +12,15 @@ export interface RGBA {
   h: number
 }
 
+/** Analysis happens on at most this many pixels (bigger photos are scaled down for it). */
+export const ANALYSIS_MAX_SIDE = 4096
+/** Largest output for the instant remover (longest side, px). */
+export const PLAIN_MAX_SIDE = 4096
+/** Largest output for the AI remover – the edge refinement step runs at this size. */
+export const AI_MAX_SIDE = 2048
+/** Auto-remove a background when the image edge is at least this plain. */
+export const AUTO_PLAIN = 0.985
+
 /* ------------------------------------------------------------------ analysis */
 
 /** Box around everything at least ~3 % opaque (pixels, top-left origin). Null if fully transparent. */
@@ -52,6 +61,44 @@ export interface BackgroundGuess {
   color: [number, number, number]
   /** Share of edge pixels close to that colour (1 = perfectly plain background). */
   uniformity: number
+}
+
+export interface ArtInfo {
+  pxW: number
+  pxH: number
+  /** Visible part of the image (pixels, top-left origin). */
+  bbox: { x: number; y: number; w: number; h: number }
+  transparent: boolean
+  background: BackgroundGuess
+}
+
+/** Sums up an artwork from a (possibly scaled-down) copy of its pixels; `fullW` × `fullH` is its real size. */
+export function artInfoOf(px: RGBA, fullW: number, fullH: number): ArtInfo {
+  const k = fullW / px.w
+  const b = opaqueBounds(px)
+  if (!b) throw new Error('This image is completely transparent.')
+  // scale the box back to full-resolution pixels (rounded outward)
+  const x0 = Math.max(0, Math.floor(b.x * k))
+  const y0 = Math.max(0, Math.floor(b.y * k))
+  const x1 = Math.min(fullW, Math.ceil((b.x + b.w) * k))
+  const y1 = Math.min(fullH, Math.ceil((b.y + b.h) * k))
+  return {
+    pxW: fullW,
+    pxH: fullH,
+    bbox: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 },
+    transparent: hasTransparency(px),
+    background: guessBackground(px),
+  }
+}
+
+/** A finished cut-out, trimmed to its visible part. */
+export function trimCutOut(img: RGBA): RGBA {
+  const b = opaqueBounds(img)
+  if (!b) throw new Error('Nothing was left after removing the background. Try a lower tolerance.')
+  // keep a couple of transparent pixels around the art so its edge stays soft
+  const x = Math.max(0, b.x - 2)
+  const y = Math.max(0, b.y - 2)
+  return cropImage(img, x, y, Math.min(img.w - x, b.w + 4), Math.min(img.h - y, b.h + 4))
 }
 
 /** Most common colour along the image's edges, and how plain the edge is. */

@@ -6,7 +6,9 @@
  * that the CorelDraw / Print Ready frontend uses.
  */
 import { cloneSettings, DEFAULT_SETTINGS, SHEETS, TRIM_SIZES } from '../config/defaults'
-import { buildItems, type Design } from './job'
+import { detectBleed } from './artwork'
+import type { Rasterizer } from './bleedRaster'
+import { buildItems, checkDesign, type Design } from './job'
 import { layoutJob } from './layout'
 import { buildPrintPdf } from './exportPdf'
 import { readSource, type SourceFile } from './sources'
@@ -22,6 +24,9 @@ export type ImposeJobOptions = {
   sheet?: '13x19' | 'A3'
   title?: string
   bleedMm?: number
+  /** Check each file for bleed, as the app does, and mirror it when missing. Off = every file is taken to have its own. */
+  autoBleed?: boolean
+  rasterizer?: Rasterizer
   items: ImposeItem[]
 }
 
@@ -29,6 +34,7 @@ export async function runCorelDrawImposition(opts: ImposeJobOptions): Promise<{
   pdfBytes: Uint8Array
   totalSheets: number
   totalPosters: number
+  warnings: string[]
 }> {
   const trim = TRIM_SIZES.find((t) => t.name.toUpperCase() === opts.size.toUpperCase()) ?? {
     name: opts.size,
@@ -67,7 +73,7 @@ export async function runCorelDrawImposition(opts: ImposeJobOptions): Promise<{
       trimW: trim.widthMm,
       trimH: trim.heightMm,
       copies: it.copies ?? 1,
-      bleedMode: 'included', // files processed with bleed or exact trim
+      bleedMode: opts.autoBleed ? detectBleed(src.pages[0].geometry, trim.widthMm, trim.heightMm, s.bleedMm).mode : 'included', // files processed with bleed or exact trim
       fit: 'fill',
       bleedAuto: false,
       split: false,
@@ -83,12 +89,14 @@ export async function runCorelDrawImposition(opts: ImposeJobOptions): Promise<{
     date: new Date(),
     title: opts.title ?? `print-ready_${opts.size}_${sheets.length}-sheets.pdf`,
     trimNames: { [groupKey]: trim.name },
+    rasterizer: opts.rasterizer,
   })
 
   return {
     pdfBytes,
     totalSheets: sheets.length,
     totalPosters: layoutItems.length,
+    warnings: designs.flatMap((d) => checkDesign(d, sources[d.sourceId], s).warnings.map((w) => `${d.name}: ${w}`)),
   }
 }
 

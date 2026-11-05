@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { newId } from '../lib/sources'
 import type { CutParams, StickerSettings } from './config'
 import { type ArtKind, bitmapPixels, decodeBitmap, encodePng, kindOf } from './lib/imaging'
-import type { PlainRemoveOptions } from './lib/matte'
+import { AUTO_PLAIN, type PlainRemoveOptions } from './lib/matte'
 import { type Sticker, type StickerArt, artSize, defaultParams, newStickerDefaults, stickerSize, widthForLongest } from './model'
 import type { ArtInfo, CutRequest, CutResult } from './workers/cut.worker'
 import type { AiProgress, MatteResult } from './workers/matte.worker'
@@ -26,8 +26,6 @@ export interface BusyState {
 
 /** Longest side of preview bitmaps (the print always uses the full file). */
 const PREVIEW_MAX = 2048
-/** Auto-remove a background when the image edge is at least this plain. */
-const AUTO_PLAIN = 0.985
 
 const cutKey = (s: Sticker, bleedMm: number) => {
   const a = artSize(s)

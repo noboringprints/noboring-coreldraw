@@ -8,13 +8,8 @@
  */
 import { BG_MODEL } from '../config'
 import { type ArtKind, bitmapPixels, decodeBitmap, encodePng } from '../lib/imaging'
-import { type PlainRemoveOptions, type RGBA, applyAiMask, cropImage, opaqueBounds, removePlainBackground } from '../lib/matte'
+import { AI_MAX_SIDE, PLAIN_MAX_SIDE, type PlainRemoveOptions, type RGBA, applyAiMask, removePlainBackground, trimCutOut } from '../lib/matte'
 import { serve } from './rpc'
-
-/** Largest output for the instant remover (longest side, px). */
-const PLAIN_MAX_SIDE = 4096
-/** Largest output for the AI remover – the edge refinement step runs at this size. */
-const AI_MAX_SIDE = 2048
 
 export interface MatteResult {
   png: Uint8Array
@@ -30,12 +25,7 @@ export interface AiProgress {
 }
 
 async function finish(img: RGBA) {
-  const b = opaqueBounds(img)
-  if (!b) throw new Error('Nothing was left after removing the background. Try a lower tolerance.')
-  // keep a couple of transparent pixels around the art so its edge stays soft
-  const x = Math.max(0, b.x - 2)
-  const y = Math.max(0, b.y - 2)
-  const out = cropImage(img, x, y, Math.min(img.w - x, b.w + 4), Math.min(img.h - y, b.h + 4))
+  const out = trimCutOut(img)
   const png = await encodePng(out)
   return { result: { png, w: out.w, h: out.h } satisfies MatteResult, transfer: [png.buffer] }
 }
