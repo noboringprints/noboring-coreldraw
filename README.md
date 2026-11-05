@@ -1,6 +1,6 @@
 # Print Ready
 
-When the app opens, choose **Posters**, **Stickers** or **Print & Cut**. (Click the logo at any time to come back to this choice – work in the other tool is kept.)
+When the app opens, choose **Posters**, **Stickers**, **Print & Cut** or **Polaroids**. (Click the logo at any time to come back to this choice – work in the other tool is kept.)
 
 **Posters** prepares finished poster designs for printing, automatically:
 
@@ -13,6 +13,8 @@ and exports **one print-ready PDF**. No CorelDRAW needed.
 **Stickers** makes die-cut / kiss-cut sticker sheets: a cut line around every design (like CorelDRAW's Contour tool), background removal, and full A4 / A3 sheets with registration marks for the plotter. See [Stickers](#stickers) below.
 
 **Print & Cut** gangs finished designs of *any* size and shape – round coasters, mug wraps, labels, tags – onto one 13 × 19 sheet, each at its exact size with bleed and a CutContour line, ready for the plotter. See [Print & Cut](#print--cut) below.
+
+**Polaroids** turns photos into instant-film style prints (Classic, Mini, Square, Wide, Go and inch sizes) with crop/position, captions, frame themes and photo looks, laid out on 13 × 19 with crop marks or print & cut. See [Polaroids](#polaroids) below.
 
 Everything runs on your own computer. Files are never uploaded anywhere.
 
@@ -36,6 +38,7 @@ Other commands:
 | `npm test` | Runs the automatic checks of all the measurements |
 | `npm run samples` | Makes 3 sample PDFs in `print-reference/output/` to print and measure |
 | `npm run build` | Makes a finished version in `dist/` (can be opened from any simple web server) |
+| `npm run server` | Starts the [API](#api) on port 5174, so other apps can use the three tools |
 
 ---
 
@@ -133,6 +136,26 @@ The **job is saved in this browser** automatically (files and settings, never up
 
 Sheet, marks, gap and bleed: ⚙ top right (defaults: 13 × 19 in, 4 corner dots 10 mm in, 2 mm bleed, 5 mm between cut lines – kept separately from the sticker settings). Defaults live in `src/printcut/model.ts`.
 
+## Polaroids
+
+One screen: photos on the left, the sheet in the middle, the editor on the right, download at the bottom.
+
+1. **Drop photos** (JPG, PNG, WebP – many at once). Each becomes a polaroid in the last-used size and theme. iPhone HEIC photos need exporting as JPG first.
+2. Click a polaroid to edit it:
+   - **Position the photo**: drag it inside the window, scroll (or the slider) to zoom, arrow keys nudge 0.5 mm (Shift = 2 mm). *Fill*, *Whole* (shows the entire photo, frame colour around it), *Centre*, *Rotate* 90° and *Flip*. A warning shows when the photo would print below 150 DPI.
+   - **Size**: Classic 88 × 107 (Polaroid 600 / i-Type), Mini 54 × 86 (Instax Mini), Square 72 × 86, Wide 108 × 86, Go 54 × 66.6, 2 × 3 in, 3 × 4 in, 3.5 × 4.2 in, 4 × 5 in, or **Custom** (width, height and each border).
+   - **Caption**: text (Enter for a new line), 6 bundled fonts (handwritten, marker, typewriter, script, retro, clean), size, alignment, colour. It shrinks itself to fit the bottom strip.
+   - **Theme**: 20 frames – plain (any colour), pastel, kraft, gradients, polka dots, stripes, gingham, hearts, starry night, confetti, wedding gold, Christmas, film strip, neon.
+   - **Photo look**: Original, Vivid, Warm, Cool, Faded, Vintage, Sepia, B & W, Noir.
+   - **Copies**, **Fill the sheet**, sheet rotation, **Another with this photo** (same photo, different crop or caption), and **Use for all photos** (size / theme / look / caption style / caption text / copies).
+3. The sheet updates instantly; drag polaroids to move them. Sizes can be mixed.
+4. **Download PDF** – each polaroid is rendered at 300 DPI from the full-size photo. Finishing (⚙ top right):
+   - **Crop marks** (default): marks at every corner for a guillotine, kept out of neighbouring polaroids; 8 mm gap, 1.5 mm bleed.
+   - **Print & cut**: CutContour line + registration marks taken from the Print & Cut tool's settings; optional rounded corners.
+   - **No marks**.
+
+The job is saved in this browser automatically. Defaults live in `src/polaroids/model.ts`.
+
 ## Settings – please confirm these with the printer
 
 All defaults live in one file: **`src/config/defaults.ts`**. They can also be changed in the app (**⚙ Settings** button; saved in that browser).
@@ -170,9 +193,56 @@ When the printer's CorelDRAW sample arrives, put it in `/print-reference/` and c
 
 ---
 
+## API
+
+`npm run server` lets another app send files and get the finished PDF back, with the same defaults as the app. Set `CORELDRAW_PORT` to use another port. The server has **no login**, so keep it on a private machine or network.
+
+Every route is a JSON `POST`. Files go in `items`, each with a `name` and the file as `base64`:
+
+```js
+const res = await fetch('http://localhost:5174/api/stickers', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    sheet: '13x19',
+    items: [{ name: 'logo.png', base64: '…', copies: 20, longestMm: 50 }],
+  }),
+})
+const { ok, error, pdfBase64, totalSheets, warnings } = await res.json()
+```
+
+Success is `{ ok: true, totalSheets, pdfBase64, warnings, … }`. Check `warnings` (low DPI, added bleed, cropping). Failure is status 500 with `{ ok: false, error }`, also when not every copy fits on the sheet, so an order never comes out short.
+
+| Route | Job options | Options per item (all optional) | Also returns |
+|---|---|---|---|
+| `POST /api/posters` | `size` (`A3`, `A4`, `A5`; required), `sheet` (`13x19`, `A3`), `bleedMm`, `title` | `copies` | `totalPosters` |
+| `POST /api/stickers` | `sheet` (`A4`, `A3`, `13x19`; default A4), `bleedMm`, `gapMm`, `mode`, `title` | `copies`, `longestMm`, `background`, `shape`, `border`, `borderMm`, `borderColor`, `cornerMm`, `smoothMm`, `rotation` | `totalStickers` |
+| `POST /api/printcut` | `sheet` (default 13x19), `bleedMm`, `gapMm`, `mode`, `title` | `copies`, `widthMm`, `heightMm`, `shape`, `cornerMm`, `bleedMode`, `border` (`{ style, mm, color }`), `smoothMm`, `rotation` | `totalPieces` |
+
+- `mode`: `print-cut` (default), `print` or `cut`.
+- `background`: `auto` (default – removes a plain background, like an upload in the app), `keep`, `plain` or `ai`. The first `ai` job downloads the model (a few minutes); after that it takes seconds.
+- `shape`: `contour`, `rect`, `rounded` or `circle`.
+- `border` (stickers): `white`, `color` or `none`.
+- `rotation`: `auto`, `0` or `90`.
+- `bleedMode`: `included`, `mirror`, `stretch`, `grow` or `none`.
+
+Stickers take PNG, JPG or WebP. Print & Cut and Posters take PDF, PNG or JPG. Posters use the first page of a PDF only.
+
+`POST /api/impose` is the storefront's older poster route. Unlike `/api/posters`, it treats every file as already having bleed, so a file without bleed is enlarged slightly to fill it.
+
+Jobs run on the server's CPU and one heavy job holds up the next, so the server needs a long-running machine rather than a serverless function.
+
+---
+
 ## For developers
 
 ```
+server.ts                the API routes
+src/lib/api-impose.ts    posters without the screens
+src/lib/api-stickers.ts  stickers without the screens
+src/lib/api-printcut.ts  Print & Cut without the screen
+tests/api.test.ts        all three, measured from rendered PDFs
+
 src/config/defaults.ts   all print settings (one place)
 src/lib/layout.ts        ups, positions, crop marks, label (pure maths, mm, origin bottom-left)
 src/lib/artwork.ts       bleed detection, fitting, mirror/stretch bleed
@@ -198,6 +268,13 @@ src/printcut/exportPrintCut.ts   draws pieces (vector PDFs, images, bleed) into 
 src/printcut/store.ts            keeps the current job in IndexedDB
 src/printcut/PrintCutApp.tsx     the Print & Cut screen (reuses the sticker sheet canvas and settings)
 tests/printcut.test.ts           product matching, shapes, 13 × 19 layout, export
+
+src/polaroids/model.ts           formats, themes, fonts, filters, crop maths, sheet settings
+src/polaroids/render.ts          draws one polaroid (Canvas 2D) – same code for the screen and the 300 DPI print
+src/polaroids/exportPolaroids.ts sheet shapes, crop marks, PDF (via the sticker sheet export)
+src/polaroids/usePolaroidJob.ts  photos + polaroids state, autosave (store.ts, IndexedDB)
+src/polaroids/PolaroidApp.tsx    the Polaroids screen; PolaroidEditor.tsx is the crop / caption / theme panel
+tests/polaroids.test.ts          crop maths, rendering, 13 × 19 layout, crop marks, PDF
 ```
 
 1 mm = 72 / 25.4 pt = 2.834645… pt. All maths is done in mm and converted once when writing the PDF.
@@ -212,6 +289,7 @@ tests/printcut.test.ts           product matching, shapes, 13 × 19 layout, expo
 | React 19, react-dom | MIT | User interface |
 | Tailwind CSS 4 | MIT | Styling |
 | lucide-react | ISC | Icons |
+| @fontsource Caveat, Permanent Marker, Special Elite, Dancing Script, Pacifico | OFL-1.1 / Apache-2.0 (fonts), MIT (packages) | Polaroid captions (bundled, not fetched) |
 | Inter (@fontsource-variable/inter) | SIL OFL 1.1 | Typeface (bundled, works offline) |
 | Vite 8, @vitejs/plugin-react | MIT | Dev server / build (dev only) |
 | Vitest 5, tsx | MIT | Tests and sample script (dev only) |

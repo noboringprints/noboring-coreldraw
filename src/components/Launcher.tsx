@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { ArrowRight, Lock } from 'lucide-react'
 import { Logo } from './Header'
 
-export type Mode = 'posters' | 'stickers' | 'printcut'
+export type Mode = 'posters' | 'stickers' | 'printcut' | 'polaroids'
 
 /** Little drawing of a poster sheet: two A4s with crop marks. */
 function PosterArt() {
@@ -38,6 +38,26 @@ function StickerArt() {
       <rect x="57" y="73" width="30" height="5" rx="1" fill="#fff" opacity=".85" />
       <rect x="57" y="82" width="20" height="3" rx="1" fill="#fff" opacity=".6" />
       <rect x="46.5" y="60.5" width="67" height="39" rx="11" fill="none" stroke="#ec008c" strokeWidth="1" strokeDasharray="2.5 1.8" />
+    </svg>
+  )
+}
+
+/** Little drawing of three polaroids with captions. */
+function PolaroidCards() {
+  const card = (x: number, y: number, r: number, color: string, sky: string) => (
+    <g transform={`rotate(${r} ${x + 22} ${y + 27})`}>
+      <rect x={x} y={y} width="44" height="54" rx="1.5" fill={color} stroke="#e2e8f0" strokeWidth=".6" />
+      <rect x={x + 3} y={y + 3} width="38" height="38" fill={sky} />
+      <circle cx={x + 30} cy={y + 13} r="4" fill="#fff" opacity=".85" />
+      <path d={`M${x + 3} ${y + 41}l12-14 9 9 6-5 11 10z`} fill="#000" opacity=".18" />
+      <path d={`M${x + 12} ${y + 48}q4 -2 8 0t8 0`} stroke="#64748b" strokeWidth="1" fill="none" strokeLinecap="round" />
+    </g>
+  )
+  return (
+    <svg viewBox="0 0 160 120" className="h-full w-full" aria-hidden>
+      {card(30, 34, -12, '#fff', '#7dd3fc')}
+      {card(86, 32, 10, '#fde7ef', '#f9a8d4')}
+      {card(58, 18, -1, '#fff', '#fcd34d')}
     </svg>
   )
 }
@@ -103,12 +123,12 @@ export default function Launcher(props: { last: Mode | null; onPick: (m: Mode) =
           <Logo />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 animate-fade-up px-5 py-12">
+      <main className="mx-auto w-full max-w-7xl flex-1 animate-fade-up px-5 py-12">
         <div className="text-center">
           <h1 className="text-3xl font-bold tracking-tight text-balance sm:text-4xl">What are we printing today?</h1>
           <p className="mt-3 text-lg text-slate-500">Pick a job – everything is set up for production automatically.</p>
         </div>
-        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-10 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
           <Choice
             title="Posters"
             tagline="A3 · A4 · A5 on 13×19 or A3 sheets"
@@ -135,6 +155,15 @@ export default function Launcher(props: { last: Mode | null; onPick: (m: Mode) =
             accent="bg-gradient-to-br from-amber-50 to-rose-50"
             last={props.last === 'printcut'}
             onClick={() => props.onPick('printcut')}
+          />
+          <Choice
+            title="Polaroids"
+            tagline="Instant-film prints from photos"
+            points={['Classic, Mini, Square, Wide & inch sizes', 'Crop, position, caption, themes & photo looks', 'Crop marks or print & cut on 13×19']}
+            art={<PolaroidCards />}
+            accent="bg-gradient-to-br from-sky-50 to-pink-50"
+            last={props.last === 'polaroids'}
+            onClick={() => props.onPick('polaroids')}
           />
         </div>
         <p className="mt-10 flex items-center justify-center gap-2 text-sm text-slate-400">

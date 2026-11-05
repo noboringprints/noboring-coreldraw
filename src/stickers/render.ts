@@ -13,7 +13,8 @@ export interface StickerVisual {
   bleed: BezierPath[]
   border: BorderStyle
   borderColor: string
-  art: ImageBitmap | null
+  /** Any drawable picture (ImageBitmap, canvas…). */
+  art: CanvasImageSource | null
   artRect: Rect
   bleedImg?: ImageBitmap | null
   bleedRect?: Rect
